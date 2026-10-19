@@ -15,6 +15,19 @@ function route(url: string, set: string): string | "png" | undefined {
   const u = new URL(url);
   const empty = set === "empty";
   if (/\.(png|jpe?g|webp|gif)$/i.test(u.pathname)) return "png";
+  if (
+    [
+      "www.schneier.com",
+      "krebsonsecurity.com",
+      "blog.talosintelligence.com",
+      "security.googleblog.com",
+      "www.microsoft.com",
+    ].includes(u.host) ||
+    (u.host === "github.blog" && u.pathname.startsWith("/security/"))
+  )
+    return empty ? "empty.rss.xml" : "security.rss.xml";
+  if (u.host === "security.example.dev")
+    return u.pathname.endsWith("feed.xml") ? "security.rss.xml" : "security-article.html";
   if (u.host === "hn.algolia.com")
     return empty ? "hn.json" : u.search.includes("front_page") ? "hn_front.json" : "hn_search.json";
   if (u.host === "www.bing.com" && u.pathname.startsWith("/news/search"))
@@ -154,7 +167,24 @@ export function fixtureDecide(): Decide {
             candidate: s.candidate,
           }).toLowerCase()
         : all;
-    const relevant = count(text, RELEVANT);
+    const security = JSON.stringify({ audience: s.audience, topics: s.topic_keywords })
+      .toLowerCase()
+      .includes("security");
+    const relevant = count(
+      text,
+      security
+        ? [
+            "security",
+            "vulnerability",
+            "ransomware",
+            "malware",
+            "cryptography",
+            "prompt injection",
+            "exploitation",
+            "mitigation",
+          ]
+        : RELEVANT,
+    );
     const answers: Record<string, Answer> = {};
     for (const [id, q] of Object.entries(questions)) {
       if (q.type === "noul") {

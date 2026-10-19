@@ -73,6 +73,19 @@ export function logRoutes({ app }: RouteDeps): Handlers<"logs"> {
             continue;
           }
           line.app ??= name;
+          if (line.trackId && line.trackId !== app.track.id) continue;
+          if (
+            !line.trackId &&
+            typeof line.conversationId === "number" &&
+            !app.store.telemetry.ownsConversation(line.conversationId)
+          )
+            continue;
+          if (
+            !line.trackId &&
+            typeof line.sweepId === "number" &&
+            !app.store.sweeps.get(line.sweepId)
+          )
+            continue;
           if (levels ? !levels.includes(line.level) : (RANK[line.level] ?? 0) < RANK[level])
             continue;
           if (sweepId !== undefined && line.sweepId !== sweepId) continue;

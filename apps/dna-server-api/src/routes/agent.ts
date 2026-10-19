@@ -37,6 +37,8 @@ export function agentRoutes({
 
   async function conversationOf(id: number | undefined) {
     if (id === undefined || id === (app.main.id as number)) return app.main;
+    if (!app.store.telemetry.ownsConversation(id))
+      throw notFound(`No conversation ${id} in this track`);
     const c = await harness.conversation(id as ConversationId, ctx);
     if (!c) throw notFound(`No conversation ${id}`);
     return c;

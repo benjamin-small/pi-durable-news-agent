@@ -1,0 +1,47 @@
+{
+  "verified_at": "2026-10-19",
+  "sources": [
+    {
+      "kind": "atom",
+      "name": "Schneier on Security",
+      "url": "https://www.schneier.com/feed/atom/",
+      "interval_min": 30,
+      "weight": 1.1
+    },
+    {
+      "kind": "rss",
+      "name": "Krebs on Security",
+      "url": "https://krebsonsecurity.com/feed/",
+      "interval_min": 30,
+      "weight": 1.2
+    },
+    {
+      "kind": "rss",
+      "name": "Cisco Talos Intelligence",
+      "url": "https://blog.talosintelligence.com/rss/",
+      "interval_min": 30,
+      "weight": 1.1
+    },
+    {
+      "kind": "atom",
+      "name": "Google Security Blog",
+      "url": "https://security.googleblog.com/feeds/posts/default",
+      "interval_min": 30,
+      "weight": 1.1
+    },
+    {
+      "kind": "rss",
+      "name": "Microsoft Security Blog",
+      "url": "https://www.microsoft.com/en-us/security/blog/feed/",
+      "interval_min": 30,
+      "weight": 1
+    },
+    {
+      "kind": "rss",
+      "name": "GitHub Security",
+      "url": "https://github.blog/security/feed/",
+      "interval_min": 30,
+      "weight": 1
+    }
+  ]
+}

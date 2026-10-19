@@ -5,7 +5,7 @@ export interface Track {
   id: string;
   name: string;
   description: string;
-  /** Editorial profile; only the existing AI profile is runnable in this release. */
+  /** Built-in editorial profile: ai or cyber-security. */
   profile: string;
   conversationId?: number;
 }

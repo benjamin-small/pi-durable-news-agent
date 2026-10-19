@@ -1,3 +1,4 @@
+import { trackName } from "./profiles.ts";
 // dna.image: generate one card image in the background, then push the updated cards. A background task, so the
 // agent's run never waits on it and an abort of the run does not cancel it.
 import { defineTask } from "@earendil-works/pi-durable";
@@ -10,7 +11,7 @@ export interface ImageInput {
 
 export function createImageTask(deps: Deps) {
   return defineTask<ImageInput, { phase: "generate" }, { ok: boolean }>({
-    name: "dna.image",
+    name: trackName(deps, "dna.image"),
     version: 1,
     initial: () => ({ phase: "generate" }),
     phases: {

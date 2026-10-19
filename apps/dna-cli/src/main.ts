@@ -31,6 +31,7 @@ const { values: flags, positionals } = parseArgs({
   args: process.argv.slice(2),
   options: {
     device: { type: "string" },
+    track: { type: "string" },
     url: { type: "string" },
     json: { type: "boolean", default: false },
     kind: { type: "string" },
@@ -59,7 +60,8 @@ const tokens = {
 const deviceId = flags.device ?? process.env.DNA_TARGET ?? "local";
 const baseUrl = () => flags.url ?? process.env.DNA_API_URL ?? targetUrl(deviceId, loadNetwork());
 let clientCache: DnaClient | undefined;
-const client = () => (clientCache ??= new DnaClient(baseUrl(), tokens.client));
+const client = () =>
+  (clientCache ??= new DnaClient(baseUrl(), tokens.client, flags.track ?? process.env.DNA_TRACK));
 const num = (value: string | undefined, name: string): number => {
   const n = Number(value);
   if (value === undefined || !Number.isInteger(n) || n < 0)
@@ -84,6 +86,14 @@ interface Command {
 }
 
 const COMMANDS: Record<string, Command> = {
+  tracks: {
+    usage: "tracks",
+    summary: "Available news desks",
+    async run() {
+      const tracks = await client().tracks();
+      return { data: tracks, text: tracks.map((t) => `${t.id}  ${t.name}`).join("\n") };
+    },
+  },
   status: {
     usage: "status",
     summary: "Device, model, agent state, last and next sweep",
@@ -638,7 +648,9 @@ const COMMANDS: Record<string, Command> = {
       const width = Math.max(...Object.values(COMMANDS).map((c) => c.usage.length));
       return {
         data: Object.fromEntries(Object.entries(COMMANDS).map(([k, c]) => [k, c.summary])),
-        text: `dna [--device id] [--json] <command>\n\n${Object.values(COMMANDS)
+        text: `dna [--device id] [--track ai|cyber-security] [--json] <command>\n\n${Object.values(
+          COMMANDS,
+        )
           .map((c) => `  ${c.usage.padEnd(Math.min(width, 50))}  ${c.summary}`)
           .join("\n")}`,
       };

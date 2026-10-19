@@ -19,3 +19,7 @@ read_item, scrape_url, search_web, jev_classify, report_findings.
 ## Report
 
 One line per item: the item id and the finding in a short sentence.
+
+## Desk policy
+
+{{editorial_rules}}

@@ -28,6 +28,8 @@ export function researchItems(deps: Deps, child: () => AgentChange) {
     }),
     replay: "safe",
     execute: async (args, api, ctx) => {
+      if (!deps.store.sweeps.get(args.sweep_id))
+        return toolError(`No sweep #${args.sweep_id} in this track.`);
       const ids = args.batches.flatMap((b) => b.item_ids);
       const items = deps.store.news.items(ids);
       const missing = ids.filter((id) => !items.some((i) => i.id === id));

@@ -14,6 +14,8 @@ import {
 const DIR = join(import.meta.dirname, "../../../../dna-server-api/prompt_engineering/jev");
 
 const SAMPLE = {
+  audience: "an engineer who builds with AI agents",
+  coverage: "AI news and agentic engineering",
   title: "pi-durable 1.1.0 adds task timings",
   source: "github.com",
   excerpt: "Task records now carry startedAt and endedAt; tool results carry durationMs.",
@@ -97,4 +99,15 @@ test("runCommand renders and decides through the seam", async () => {
     client.systemOne(s, q, o),
   );
   assert.deepEqual(Object.keys(result.answers).sort(), ["facts", "hype", "signal"]);
+});
+
+test("worth-attention uses the selected desk's audience and coverage", () => {
+  const rendered = renderCommand(loadCommand("worth-attention", DIR), {
+    ...SAMPLE,
+    audience: "a cyber security reader",
+    coverage: "industry security news and research",
+  });
+  assert.equal((rendered.state as any).audience, "a cyber security reader");
+  assert.equal((rendered.state as any).coverage, "industry security news and research");
+  assert.doesNotMatch(JSON.stringify(rendered.questions), /agentic engineer|builds with AI/);
 });

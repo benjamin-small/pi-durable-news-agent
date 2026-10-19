@@ -11,6 +11,7 @@ export function requestLog(log: Logger): RequestHandler {
     res.on("finish", () => {
       const line = {
         requestId: id,
+        trackId: res.locals.trackId,
         method: req.method,
         path: req.path,
         status: res.statusCode,

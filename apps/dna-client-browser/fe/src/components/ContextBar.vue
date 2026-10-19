@@ -181,6 +181,10 @@ async function compactNow() {
           agent keeps working. At <strong>{{ k(marks.force) }}</strong> the next request waits for
           it, keeping {{ k(window - marks.force) }} free for the answer.
         </p>
+        <p v-if="settings?.shared" class="muted">
+          Automatic compaction policy applies to both desks. Token points depend on each model.
+          Compact now summarizes only this desk.
+        </p>
         <p class="muted">Drag either marker on the bar, or focus one and use the arrow keys.</p>
         <label class="toggle"
           ><input

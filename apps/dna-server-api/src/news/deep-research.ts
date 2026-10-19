@@ -1,3 +1,4 @@
+import { trackName } from "./profiles.ts";
 // dna.deep-research: research the reader asked for, run in the background. deep_dive_research creates this task and its
 // deep-research subagents in one commit and returns at once. The task asks every subagent in parallel and posts each
 // answer to the main conversation as a follow-up the moment that subagent finishes, so the desk relays answers as they
@@ -70,7 +71,7 @@ export interface DeepResearchResult {
 export function createDeepResearchTask(deps: Deps) {
   const agentsDir = join(deps.config.promptsDir, "agents");
   return defineTask<DeepResearchInput, { phase: "research" }, DeepResearchResult>({
-    name: "dna.deep-research",
+    name: trackName(deps, "dna.deep-research"),
     version: 1,
     initial: () => ({ phase: "research" }),
     phases: {

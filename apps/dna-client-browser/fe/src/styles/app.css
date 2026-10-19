@@ -2036,3 +2036,13 @@ a.source:hover {
   gap: 12px;
   padding: 18px var(--s2);
 }
+
+.track-select {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  max-width: 220px;
+}

@@ -148,3 +148,17 @@ test("errors come back as JSON with the server's code", async () => {
   assert.equal(missing.code, 1);
   assert.equal(missing.json.error.code, "not_found");
 });
+
+test("--track selects the dedicated desk for terminal reads and writes", async () => {
+  const tracks = await dna("tracks");
+  assert.deepEqual(
+    tracks.json.map((t: { id: string }) => t.id),
+    ["ai", "cyber-security"],
+  );
+  const security = await dna("--track", "cyber-security", "status");
+  assert.equal(security.json.info.track.id, "cyber-security");
+  assert.equal(security.json.lastSweep, undefined);
+  assert.equal((await dna("--track", "cyber-security", "schedule", "15")).json.everyMinutes, 15);
+  assert.notEqual((await dna("schedule")).json.everyMinutes, 15);
+  assert.equal((await dna("--track", "missing", "feed")).code, 1);
+});

@@ -13,7 +13,7 @@ export function requireActiveTrack(app: App): RequestHandler {
     if (typeof id !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(id))
       throw invalid("track must be a lowercase track id");
     if (!app.store.tracks.get(id)) throw notFound(`Unknown track ${id}`);
-    if (id !== app.track.id) throw new ApiFault("unavailable", `Track ${id} has no running desk`);
+    if (!app.desks.has(id)) throw new ApiFault("unavailable", `Track ${id} has no running desk`);
     res.set("X-DNA-Track", id);
     res.locals.trackId = id;
     next();
@@ -21,6 +21,7 @@ export function requireActiveTrack(app: App): RequestHandler {
 }
 
 export function trackRoutes({ app }: RouteDeps): Handlers<"tracks.list"> {
-  // Only runnable desks are advertised. Track creation/activation comes with the next agent.
-  return { "tracks.list": (_req, res) => res.json([app.track]) };
+  return {
+    "tracks.list": (_req, res) => res.json([...app.desks.values()].map((desk) => desk.track)),
+  };
 }

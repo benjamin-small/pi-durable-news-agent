@@ -277,6 +277,8 @@ export interface ModelInfo {
 }
 
 export interface CompactionState {
+  /** Automatic policy is shared by the harness; manual compaction targets this desk. */
+  shared?: boolean;
   background: number;
   force: number;
   enabled: boolean;
@@ -539,6 +541,8 @@ export type SendResult =
   | { submissionId: number; status: "unanswered"; reason?: string };
 
 export interface WorkflowResult {
+  /** An unqualified scheduled tick visits every desk; manual calls target one desk. */
+  trackResults?: (WorkflowResult & { trackId: string })[];
   /** not_due: a scheduled tick that is not due (the schedule is off, or this slot already swept). */
   status: "accepted" | "replay" | "skipped" | "not_due";
   sweep?: Sweep;

@@ -9,6 +9,14 @@ export class Bus {
   }
   publish(frame: Frame): void {
     this.emitter.emit("frame", { ...frame, trackId: this.trackId });
+    this.changed();
+  }
+  changed(): void {
+    this.emitter.emit("changed");
+  }
+  onChange(listener: () => void): () => void {
+    this.emitter.on("changed", listener);
+    return () => this.emitter.off("changed", listener);
   }
   subscribe(listener: (frame: Frame) => void): () => void {
     this.emitter.on("frame", listener);

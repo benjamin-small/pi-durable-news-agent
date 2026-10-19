@@ -1,7 +1,21 @@
 import { DEFAULT_TRACK_ID } from "@dna/sdk";
 
-/** Only AI is enabled in the foundation release; a second desk adds track selection. */
-export const ACTIVE_TRACK_ID = DEFAULT_TRACK_ID;
+/** A page has one immutable desk context. Switching reloads it, disposing old streams, dialogs and requests. */
+const requested = new URL(location.href).searchParams.get("track");
+export const ACTIVE_TRACK_ID =
+  requested === null
+    ? DEFAULT_TRACK_ID
+    : /^[a-z0-9][a-z0-9-]{0,63}$/.test(requested)
+      ? requested
+      : "invalid-track";
+
+export function selectTrack(id: string) {
+  if (id === ACTIVE_TRACK_ID) return;
+  const url = new URL(location.href);
+  url.searchParams.set("track", id);
+  url.hash = "/";
+  location.assign(url.href);
+}
 
 export const trackStorageKey = (name: string, trackId = ACTIVE_TRACK_ID) =>
   `dna.track.${trackId}.${name}`;

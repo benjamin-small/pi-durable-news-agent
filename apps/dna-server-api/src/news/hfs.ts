@@ -1,3 +1,4 @@
+import { profileFor } from "./profiles.ts";
 // The Judge: every jev command the app runs, with each call priced, logged and stored in jev_calls.
 import { join } from "node:path";
 import type { HfsScores } from "@dna/sdk";
@@ -72,6 +73,8 @@ export class Judge {
   /** Run one command by name, recording the call whether it succeeds or fails. */
   async run(name: JevCommandName, vars: Vars, ref: JudgeRef = {}): Promise<SystemOneResult> {
     const cmd = this.commands[name];
+    const profile = profileFor(this.deps.store.trackId);
+    vars = { ...vars, audience: profile.audience, coverage: profile.coverage };
     try {
       const { result, rendered } = await runCommand(cmd, vars, this.deps.decide);
       const record = this.ledger.record(result, { command: cmd.name, version: cmd.version });

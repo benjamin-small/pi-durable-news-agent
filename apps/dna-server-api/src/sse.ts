@@ -6,7 +6,7 @@ import type { Request, Response } from "express";
 import { watchEvents, type ConversationId } from "@earendil-works/pi-durable";
 import { API_VERSION, type Frame } from "@dna/sdk";
 import { agentState } from "./agent-state.ts";
-import { invalid } from "./errors.ts";
+import { invalid, notFound } from "./errors.ts";
 import type { App } from "./runtime.ts";
 
 const MAX_BUFFER = 2_000_000;
@@ -127,6 +127,9 @@ export class StreamHub {
   async serve(app: App, req: Request, res: Response): Promise<void> {
     const { harness, ctx } = app.harness;
     const extra = parseConversations(req.query.conversations);
+    for (const id of extra)
+      if (!app.store.telemetry.ownsConversation(id))
+        throw notFound(`No conversation ${id} in this track`);
     const ids = [app.main.id as number, ...extra.filter((id) => id !== (app.main.id as number))];
     const output = openSse(res);
     const sse: Sse = {
@@ -189,6 +192,7 @@ export class StreamHub {
       onError,
     );
     sse.onClose(harness.subscribeCommits(() => state()));
+    sse.onClose(app.bus.onChange(() => state()));
     sse.onClose(() => state.cancel());
     await state.now();
   }

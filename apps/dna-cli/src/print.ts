@@ -91,6 +91,7 @@ export function searchEngines(engines: SearchEngineHealth[]): string {
 
 export function status(info: Info, agent: AgentState, last?: Sweep): string {
   return [
+    `${info.track?.name ?? "AI"} desk`,
     `${info.deviceName} (${info.device})  ${info.mode}  search ${info.searchMode}  pi-durable ${info.piDurable}`,
     `model ${agent.model}  thinking ${agent.thinkingLevel}  ${agent.busy ? "working" : "idle"}`,
     `context ${k(agent.contextTokens)} of ${k(agent.contextWindow)}  compaction ${k(agent.compaction.background)} and ${k(agent.compaction.force)}${agent.compaction.enabled ? "" : " (off)"}`,

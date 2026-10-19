@@ -22,20 +22,25 @@ import { requireActiveTrack, trackRoutes } from "./routes/tracks.ts";
 
 export function createHttpApp(app: App) {
   const hub = new StreamHub();
-  const deps = { app, hub };
-  const handlers: Handlers = {
-    ...trackRoutes(deps),
-    ...infoRoutes(deps),
-    ...workflowRoutes(deps),
-    ...scheduleRoutes(deps),
-    ...feedRoutes(deps),
-    ...tasteRoutes(deps),
-    ...keywordRoutes(deps),
-    ...sourceRoutes(deps),
-    ...agentRoutes(deps),
-    ...executionRoutes(deps),
-    ...logRoutes(deps),
-  };
+  const byTrack = new Map(
+    [...app.desks].map(([id, desk]) => {
+      const deps = { app: desk, hub };
+      const handlers: Handlers = {
+        ...trackRoutes(deps),
+        ...infoRoutes(deps),
+        ...workflowRoutes(deps),
+        ...scheduleRoutes(deps),
+        ...feedRoutes(deps),
+        ...tasteRoutes(deps),
+        ...keywordRoutes(deps),
+        ...sourceRoutes(deps),
+        ...agentRoutes(deps),
+        ...executionRoutes(deps),
+        ...logRoutes(deps),
+      };
+      return [id, handlers] as const;
+    }),
+  );
   const http = express();
   http.disable("x-powered-by");
   http.set("trust proxy", "loopback");
@@ -47,7 +52,9 @@ export function createHttpApp(app: App) {
   for (const id of Object.keys(ROUTES) as RouteId[]) {
     const route = ROUTES[id];
     const method = route.method.toLowerCase() as "get" | "post" | "patch" | "delete";
-    http[method](route.path, requireScope(route.scope, id, app.log), track, replay, handlers[id]);
+    http[method](route.path, requireScope(route.scope, id, app.log), track, replay, (req, res) =>
+      byTrack.get(res.locals.trackId ?? app.track.id)![id](req, res),
+    );
   }
   http.use((req) => {
     throw notFound(`No route ${req.method} ${req.path}`);

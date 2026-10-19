@@ -8,6 +8,7 @@ import {
   type Extension,
 } from "@earendil-works/pi-durable";
 import { allowOnly, loadPrompt, observability } from "@dna/durable-agent";
+import { profileFor, trackName } from "../news/profiles.ts";
 import type { Deps } from "../deps.ts";
 import { componentCatalog } from "../news/components.ts";
 import { createDeepResearchTask, deepResearchSetting } from "../news/deep-research.ts";
@@ -92,24 +93,32 @@ export function createAgents(deps: Deps): Agents {
   const sweepTask = createSweepTask(deps);
   const imageTask = createImageTask(deps);
   const deepResearchTask = createDeepResearchTask(deps);
-  const observe = observability({
-    event: (e) => {
-      deps.store.telemetry.event(e);
-      deps.log[e.level === "debug" ? "debug" : e.level](`agent.${e.event}`, {
-        conversationId: e.conversationId,
-        taskId: e.taskId,
-        ...e.data,
-      });
+  const observe = observability(
+    {
+      event: (e) => {
+        deps.store.telemetry.event(e);
+        deps.log[e.level === "debug" ? "debug" : e.level](`agent.${e.event}`, {
+          conversationId: e.conversationId,
+          taskId: e.taskId,
+          ...e.data,
+        });
+      },
     },
-  });
+    trackName(deps, "observability"),
+  );
   const deskPrompt = loadPrompt(agentsDir, "news-desk", "SYSTEM_PROMPT.md", {
     device_name: deps.config.device,
+    editorial_focus: profileFor(deps.store.trackId).coverage,
+    editorial_rules: profileFor(deps.store.trackId).editorial,
     track_name: deps.store.tracks.get(deps.store.trackId)!.name,
     search_mode: deps.search.mode,
     component_catalog: componentCatalog(),
   });
-  const researcherPrompt = loadPrompt(agentsDir, "news-researcher", "SYSTEM_PROMPT.md", {});
+  const researcherPrompt = loadPrompt(agentsDir, "news-researcher", "SYSTEM_PROMPT.md", {
+    editorial_rules: profileFor(deps.store.trackId).editorial,
+  });
   const deepResearchPrompt = loadPrompt(agentsDir, "deep-research", "SYSTEM_PROMPT.md", {
+    editorial_rules: profileFor(deps.store.trackId).editorial,
     web_access:
       deps.search.hyperFetchVia === "firecrawl"
         ? "Firecrawl (web and news search, full page scrapes), with free search engines and direct page fetches when it fails"
@@ -130,7 +139,7 @@ export function createAgents(deps: Deps): Agents {
     reportFindings(deps),
   ];
   const newsResearcher = defineExtension({
-    name: "news-researcher",
+    name: trackName(deps, "news-researcher"),
     tools: researcherTools,
     sections: [section("news-researcher", () => researcherPrompt, { tag: false })],
     hooks: [allowOnly("news-researcher", RESEARCHER_TOOLS)],
@@ -145,7 +154,7 @@ export function createAgents(deps: Deps): Agents {
   });
   const deepResearchTools = [deepSearch(deps), openPage(deps), shared.readItem];
   const deepResearch = defineExtension({
-    name: "deep-research",
+    name: trackName(deps, "deep-research"),
     tools: deepResearchTools,
     sections: [section("deep-research", () => deepResearchPrompt, { tag: false })],
     hooks: [allowOnly("deep-research", DEEP_RESEARCH_TOOLS)],
@@ -185,7 +194,7 @@ export function createAgents(deps: Deps): Agents {
     completeSweep(deps),
   ];
   const newsDesk = defineExtension({
-    name: "news-desk",
+    name: trackName(deps, "news-desk"),
     tools: deskTools,
     sections: [section("news-desk", () => deskPrompt, { tag: false })],
     hooks: [allowOnly("news-desk", DESK_TOOLS)],
