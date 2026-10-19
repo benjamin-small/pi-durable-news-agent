@@ -208,15 +208,7 @@ export function presentTimeline(deps: Deps) {
         return toolError(
           `present_timeline failed: no items ${missing.map((m) => `#${m}`).join(", ")}.`,
         );
-      const presented = new Set(
-        (
-          deps.store.db
-            .prepare(
-              `SELECT item_id FROM cards WHERE kind = 'news' AND item_id IN (${args.item_ids.map(() => "?").join(",")})`,
-            )
-            .all(...args.item_ids) as { item_id: number }[]
-        ).map((r) => r.item_id),
-      );
+      const presented = new Set(args.item_ids.filter((id) => news.cardForItem(id)));
       const unpresented = args.item_ids.filter((id) => !presented.has(id));
       if (unpresented.length)
         return toolError(

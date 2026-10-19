@@ -18,11 +18,13 @@ import { scheduleRoutes } from "./routes/schedule.ts";
 import { workflowRoutes } from "./routes/workflows.ts";
 import type { App } from "./runtime.ts";
 import { StreamHub } from "./sse.ts";
+import { requireActiveTrack, trackRoutes } from "./routes/tracks.ts";
 
 export function createHttpApp(app: App) {
   const hub = new StreamHub();
   const deps = { app, hub };
   const handlers: Handlers = {
+    ...trackRoutes(deps),
     ...infoRoutes(deps),
     ...workflowRoutes(deps),
     ...scheduleRoutes(deps),
@@ -40,11 +42,12 @@ export function createHttpApp(app: App) {
   http.use(requestLog(app.log));
   http.use(express.json({ limit: "256kb" }));
   http.use(identify({ client: app.config.clientToken, cron: app.config.cronToken }));
-  http.use(idempotent(app.store.db, { skip: [ROUTES["workflow.newsSweep"].path] }));
+  const track = requireActiveTrack(app);
+  const replay = idempotent(app.store.db, { skip: [ROUTES["workflow.newsSweep"].path] });
   for (const id of Object.keys(ROUTES) as RouteId[]) {
     const route = ROUTES[id];
     const method = route.method.toLowerCase() as "get" | "post" | "patch" | "delete";
-    http[method](route.path, requireScope(route.scope, id, app.log), handlers[id]);
+    http[method](route.path, requireScope(route.scope, id, app.log), track, replay, handlers[id]);
   }
   http.use((req) => {
     throw notFound(`No route ${req.method} ${req.path}`);

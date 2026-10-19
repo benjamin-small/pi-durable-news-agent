@@ -32,6 +32,7 @@ export function infoRoutes({ app }: RouteDeps): Handlers<"healthz" | "info"> {
       const budget = app.search.budget();
       const model = await app.mainModel();
       const info: Info = {
+        track: app.track,
         ok: true,
         device: app.config.device,
         deviceName: app.config.deviceName,

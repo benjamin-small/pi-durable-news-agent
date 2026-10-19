@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { Conversation, SubmissionId } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord";
 import { JevClient, type Decide } from "@dna/jev";
-import type { CompactionState } from "@dna/sdk";
+import type { CompactionState, Track } from "@dna/sdk";
 import {
   createModelCatalog,
   DEFAULT_POINTS,
@@ -41,6 +41,7 @@ export interface CompactionSetting {
 }
 
 export interface App extends Deps {
+  readonly track: Track;
   harness: DurableHarness;
   ctx: Context;
   agents: Agents;
@@ -137,6 +138,7 @@ export async function openApp(config: Config, options: { log?: Logger } = {}): P
   const main = await harness.harness.root(ctx, {
     agent: { model: catalog.defaultModel, thinkingLevel: "low" },
   });
+  const track = store.tracks.bindConversation(store.trackId, main.id as number);
   const mainModel = async () => {
     const agent = await main.agent(ctx);
     const id = agent.model?.modelId ?? catalog.defaultModel.modelId;
@@ -169,6 +171,7 @@ export async function openApp(config: Config, options: { log?: Logger } = {}): P
 
   return {
     ...deps,
+    track,
     harness,
     ctx,
     agents,

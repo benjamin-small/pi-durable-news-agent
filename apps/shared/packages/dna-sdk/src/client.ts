@@ -38,6 +38,7 @@ import { DnaError, type ErrorCode } from "./errors.ts";
 import { ROUTES, routePath, type RouteId } from "./routes.ts";
 import { readSse } from "./sse.ts";
 import type { TranscriptItem } from "./transcript.ts";
+import type { Track } from "./tracks.ts";
 
 export interface CallOptions {
   params?: Record<string, string | number>;
@@ -62,8 +63,22 @@ export class DnaClient {
   constructor(
     baseUrl: string,
     private readonly token?: string,
+    readonly trackId?: string,
   ) {
+    if (trackId !== undefined && !/^[a-z0-9][a-z0-9-]{0,63}$/.test(trackId))
+      throw new DnaError("invalid", "track must be a lowercase track id", 400);
     this.baseUrl = baseUrl.replace(/\/+$/, "");
+  }
+
+  /** Independent client context; requests without a track retain the legacy AI default. */
+  forTrack(trackId: string): DnaClient {
+    return new DnaClient(this.baseUrl, this.token, trackId);
+  }
+
+  private query(query: CallOptions["query"] = {}) {
+    if (this.trackId && query.track !== undefined && query.track !== this.trackId)
+      throw new Error("A track-bound client cannot target another track");
+    return { ...query, ...(this.trackId ? { track: this.trackId } : {}) };
   }
 
   private headers(json: boolean, extra: Record<string, string> = {}) {
@@ -80,9 +95,10 @@ export class DnaClient {
     const timeout = AbortSignal.timeout(options.timeoutMs ?? 30_000);
     const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
     const key = options.idempotencyKey ?? (route.method === "POST" ? newRequestId() : undefined);
+    const path = routePath(id, options.params, this.query(options.query));
     let response: Response;
     try {
-      response = await fetch(this.baseUrl + routePath(id, options.params, options.query), {
+      response = await fetch(this.baseUrl + path, {
         method: route.method,
         signal,
         headers: this.headers(options.body !== undefined, key ? { "idempotency-key": key } : {}),
@@ -128,7 +144,11 @@ export class DnaClient {
     signal: AbortSignal,
     options: { conversations?: number[]; idleMs?: number } = {},
   ): AsyncGenerator<Frame> {
-    const path = routePath("stream", {}, { conversations: options.conversations?.join(",") });
+    const path = routePath(
+      "stream",
+      {},
+      this.query({ conversations: options.conversations?.join(",") }),
+    );
     let response: Response;
     try {
       response = await fetch(this.baseUrl + path, {
@@ -166,6 +186,9 @@ export class DnaClient {
   }
   info() {
     return this.call<Info>("info");
+  }
+  tracks() {
+    return this.call<Track[]>("tracks.list");
   }
   sweeps(query: { limit?: number; before?: number } = {}) {
     return this.call<Sweep[]>("sweeps.list", { query });

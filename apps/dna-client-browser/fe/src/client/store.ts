@@ -12,8 +12,9 @@ import {
   type Info,
   type ToolCallRow,
 } from "@dna/sdk";
+import { ACTIVE_TRACK_ID } from "./track";
 
-export const api = new DnaClient("/api");
+export const api = new DnaClient("/api").forTrack(ACTIVE_TRACK_ID);
 export const feed = new FeedModel();
 export const feedState = shallowRef(feed.state);
 feed.subscribe(() => (feedState.value = feed.state));
@@ -99,6 +100,7 @@ export function start(): () => void {
   void follow(
     (signal) => api.stream(signal),
     (frame) => {
+      if (frame.trackId && frame.trackId !== ACTIVE_TRACK_ID) return;
       if (frame.type === "hello")
         void loadSnapshot().catch((e) => notify(String(e.message ?? e), "bad"));
       agent.apply(frame);

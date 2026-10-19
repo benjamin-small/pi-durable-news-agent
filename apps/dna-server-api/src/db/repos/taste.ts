@@ -1,11 +1,13 @@
 // Keywords per section, feedback on cards, and the taste questions the agent asks.
 import type { HfsCategory, Keyword, TasteQuestion } from "@dna/sdk";
-import { bind, bool, type Db, nowIso, num, parse, str } from "../db.ts";
+import { TrackRepo } from "../track-repo.ts";
+import { bind, bool, nowIso, num, parse, str } from "../db.ts";
 
 export type KeywordKind = Keyword["kind"];
 
 const toKeyword = (r: any): Keyword => ({
   id: r.id,
+  trackId: r.track_id,
   kind: r.kind,
   term: r.term,
   weight: r.weight,
@@ -16,6 +18,7 @@ const toKeyword = (r: any): Keyword => ({
 
 const toQuestion = (r: any): TasteQuestion => ({
   id: r.id,
+  trackId: r.track_id,
   cardId: num(r.card_id),
   itemId: num(r.item_id),
   question: r.question,
@@ -25,12 +28,10 @@ const toQuestion = (r: any): TasteQuestion => ({
   answeredAt: str(r.answered_at),
 });
 
-export class TasteRepo {
-  constructor(private readonly db: Db) {}
-
+export class TasteRepo extends TrackRepo {
   seed(groups: Record<KeywordKind, string[]>): number {
-    const insert = this.db.prepare(
-      "INSERT OR IGNORE INTO keywords (kind, term, source, created_at, updated_at) VALUES (?, ?, 'seed', ?, ?)",
+    const insert = this.prepare(
+      "INSERT OR IGNORE INTO keywords (track_id, kind, term, source, created_at, updated_at) VALUES (:track, ?, ?, 'seed', ?, ?)",
     );
     let added = 0;
     const now = nowIso();
@@ -40,37 +41,37 @@ export class TasteRepo {
   }
 
   keywords(kind?: KeywordKind, enabledOnly = false): Keyword[] {
-    const where = [kind ? "kind = :kind" : "", enabledOnly ? "enabled = 1" : ""]
+    const where = [
+      "track_id = :track",
+      kind ? "kind = :kind" : "",
+      enabledOnly ? "enabled = 1" : "",
+    ]
       .filter(Boolean)
       .join(" AND ");
     return (
-      this.db
-        .prepare(
-          `SELECT * FROM keywords ${where ? `WHERE ${where}` : ""} ORDER BY kind, weight DESC, term`,
-        )
-        .all(bind({ ...(kind ? { kind } : {}) })) as any[]
+      this.prepare(
+        `SELECT * FROM keywords ${where ? `WHERE ${where}` : ""} ORDER BY kind, weight DESC, term`,
+      ).all(bind({ ...(kind ? { kind } : {}) })) as any[]
     ).map(toKeyword);
   }
 
   keyword(id: number): Keyword | undefined {
-    const r = this.db.prepare("SELECT * FROM keywords WHERE id = ?").get(id);
+    const r = this.prepare("SELECT * FROM keywords WHERE track_id = :track AND id = ?").get(id);
     return r ? toKeyword(r) : undefined;
   }
 
   findKeyword(kind: KeywordKind, term: string): Keyword | undefined {
-    const r = this.db
-      .prepare("SELECT * FROM keywords WHERE kind = ? AND lower(term) = lower(?)")
-      .get(kind, term);
+    const r = this.prepare(
+      "SELECT * FROM keywords WHERE track_id = :track AND kind = ? AND lower(term) = lower(?)",
+    ).get(kind, term);
     return r ? toKeyword(r) : undefined;
   }
 
   addKeyword(kind: KeywordKind, term: string, weight = 1): Keyword {
     const now = nowIso();
-    this.db
-      .prepare(
-        "INSERT INTO keywords (kind, term, weight, source, created_at, updated_at) VALUES (?, ?, ?, 'user', ?, ?) ON CONFLICT (kind, term) DO UPDATE SET enabled = 1, updated_at = excluded.updated_at",
-      )
-      .run(kind, term.trim(), weight, now, now);
+    this.prepare(
+      "INSERT INTO keywords (track_id, kind, term, weight, source, created_at, updated_at) VALUES (:track, ?, ?, ?, 'user', ?, ?) ON CONFLICT (track_id, kind, term) DO UPDATE SET enabled = 1, updated_at = excluded.updated_at",
+    ).run(kind, term.trim(), weight, now, now);
     return this.findKeyword(kind, term.trim())!;
   }
 
@@ -80,24 +81,26 @@ export class TasteRepo {
   ): Keyword | undefined {
     const k = this.keyword(id);
     if (!k) return undefined;
-    this.db
-      .prepare(
-        "UPDATE keywords SET weight = :weight, enabled = :enabled, term = :term, updated_at = :now WHERE id = :id",
-      )
-      .run(
-        bind({
-          id,
-          weight: clamp(patch.weight ?? k.weight),
-          enabled: patch.enabled ?? k.enabled,
-          term: patch.term?.trim() || k.term,
-          now: nowIso(),
-        }),
-      );
+    this.prepare(
+      "UPDATE keywords SET weight = :weight, enabled = :enabled, term = :term, updated_at = :now WHERE track_id = :track AND id = :id",
+    ).run(
+      bind({
+        id,
+        weight: clamp(patch.weight ?? k.weight),
+        enabled: patch.enabled ?? k.enabled,
+        term: patch.term?.trim() || k.term,
+        now: nowIso(),
+      }),
+    );
     return this.keyword(id);
   }
 
   removeKeyword(id: number): boolean {
-    return Number(this.db.prepare("DELETE FROM keywords WHERE id = ?").run(id).changes) > 0;
+    return (
+      Number(
+        this.prepare("DELETE FROM keywords WHERE track_id = :track AND id = ?").run(id).changes,
+      ) > 0
+    );
   }
 
   /** Add delta to a weight, clamped to 0.1..2.0. */
@@ -109,7 +112,9 @@ export class TasteRepo {
 
   markSearched(ids: number[]): void {
     const now = nowIso();
-    const stmt = this.db.prepare("UPDATE keywords SET last_searched_at = ? WHERE id = ?");
+    const stmt = this.prepare(
+      "UPDATE keywords SET last_searched_at = ? WHERE track_id = :track AND id = ?",
+    );
     for (const id of ids) stmt.run(now, id);
   }
 
@@ -117,19 +122,18 @@ export class TasteRepo {
     cardId: number,
     input: { signal?: "more" | "less"; labels?: HfsCategory[]; note?: string },
   ): void {
-    this.db
-      .prepare(
-        "INSERT INTO feedback (card_id, signal, labels_json, note, created_at) VALUES (:card_id, :signal, :labels, :note, :now)",
-      )
-      .run(
-        bind({
-          card_id: cardId,
-          signal: input.signal,
-          labels: input.labels,
-          note: input.note,
-          now: nowIso(),
-        }),
-      );
+    this.requireOwned("cards", cardId);
+    this.prepare(
+      "INSERT INTO feedback (card_id, signal, labels_json, note, created_at) VALUES (:card_id, :signal, :labels, :note, :now)",
+    ).run(
+      bind({
+        card_id: cardId,
+        signal: input.signal,
+        labels: input.labels,
+        note: input.note,
+        now: nowIso(),
+      }),
+    );
   }
 
   /** Recent feedback joined to card titles, newest first. */
@@ -141,13 +145,11 @@ export class TasteRepo {
     at: string;
   }[] {
     return (
-      this.db
-        .prepare(
-          `SELECT f.card_id, f.signal, f.labels_json, f.created_at, COALESCE(json_extract(c.props_json, '$.title'), i.title, '') AS title
+      this.prepare(
+        `SELECT f.card_id, f.signal, f.labels_json, f.created_at, COALESCE(json_extract(c.props_json, '$.title'), i.title, '') AS title
            FROM feedback f JOIN cards c ON c.id = f.card_id LEFT JOIN items i ON i.id = c.item_id
-           ORDER BY f.id DESC LIMIT ?`,
-        )
-        .all(limit) as any[]
+           WHERE c.track_id = :track ORDER BY f.id DESC LIMIT ?`,
+      ).all(limit) as any[]
     ).map((r) => ({
       cardId: r.card_id,
       title: r.title,
@@ -166,51 +168,51 @@ export class TasteRepo {
     toolCallId: string;
     conversationId?: number;
   }): { question: TasteQuestion; created: boolean } {
-    const existing = this.db
-      .prepare("SELECT * FROM taste_questions WHERE tool_call_id = ?")
-      .get(input.toolCallId);
+    this.requireOwned("cards", input.cardId);
+    this.requireOwned("items", input.itemId);
+    const existing = this.prepare(
+      "SELECT * FROM taste_questions WHERE track_id = :track AND tool_call_id = ?",
+    ).get(input.toolCallId);
     if (existing) return { question: toQuestion(existing), created: false };
     const open = input.itemId
-      ? this.db
-          .prepare("SELECT * FROM taste_questions WHERE item_id = ? AND status = 'open'")
-          .get(input.itemId)
+      ? this.prepare(
+          "SELECT * FROM taste_questions WHERE track_id = :track AND item_id = ? AND status = 'open'",
+        ).get(input.itemId)
       : undefined;
     if (open) return { question: toQuestion(open), created: false };
-    const r = this.db
-      .prepare(
-        "INSERT INTO taste_questions (card_id, item_id, question, tool_call_id, conversation_id, created_at) VALUES (:card_id, :item_id, :question, :tool_call_id, :conversation_id, :now)",
-      )
-      .run(
-        bind({
-          card_id: input.cardId,
-          item_id: input.itemId,
-          question: input.question,
-          tool_call_id: input.toolCallId,
-          conversation_id: input.conversationId,
-          now: nowIso(),
-        }),
-      );
+    const r = this.prepare(
+      "INSERT INTO taste_questions (track_id, card_id, item_id, question, tool_call_id, conversation_id, created_at) VALUES (:track, :card_id, :item_id, :question, :tool_call_id, :conversation_id, :now)",
+    ).run(
+      bind({
+        card_id: input.cardId,
+        item_id: input.itemId,
+        question: input.question,
+        tool_call_id: input.toolCallId,
+        conversation_id: input.conversationId,
+        now: nowIso(),
+      }),
+    );
     return { question: this.question(Number(r.lastInsertRowid))!, created: true };
   }
 
   question(id: number): TasteQuestion | undefined {
-    const r = this.db.prepare("SELECT * FROM taste_questions WHERE id = ?").get(id);
+    const r = this.prepare("SELECT * FROM taste_questions WHERE track_id = :track AND id = ?").get(
+      id,
+    );
     return r ? toQuestion(r) : undefined;
   }
 
   questions(status?: TasteQuestion["status"]): TasteQuestion[] {
     const sql = status
-      ? "SELECT * FROM taste_questions WHERE status = ? ORDER BY id"
-      : "SELECT * FROM taste_questions ORDER BY id";
-    return (status ? this.db.prepare(sql).all(status) : this.db.prepare(sql).all()).map(toQuestion);
+      ? "SELECT * FROM taste_questions WHERE track_id = :track AND status = ? ORDER BY id"
+      : "SELECT * FROM taste_questions WHERE track_id = :track ORDER BY id";
+    return (status ? this.prepare(sql).all(status) : this.prepare(sql).all()).map(toQuestion);
   }
 
   answer(id: number, labels: HfsCategory[]): TasteQuestion | undefined {
-    this.db
-      .prepare(
-        "UPDATE taste_questions SET status = 'answered', answer_labels_json = ?, answered_at = ? WHERE id = ? AND status = 'open'",
-      )
-      .run(JSON.stringify(labels), nowIso(), id);
+    this.prepare(
+      "UPDATE taste_questions SET status = 'answered', answer_labels_json = ?, answered_at = ? WHERE track_id = :track AND id = ? AND status = 'open'",
+    ).run(JSON.stringify(labels), nowIso(), id);
     return this.question(id);
   }
 }
