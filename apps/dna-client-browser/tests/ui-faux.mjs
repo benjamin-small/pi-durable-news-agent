@@ -975,6 +975,7 @@ try {
   await page.getByRole("button", { name: "Close settings" }).click();
 
   // ---------------------------------------------------------------- dedicated Cyber Security desk
+  await page.getByLabel("Sort by", { exact: true }).selectOption("added");
   await page.getByLabel("Message the agent").fill("AI draft stays with AI");
   const aiBeforeSwitch = await call("GET", "/v1/feed");
   await page.getByLabel("News track").selectOption("cyber-security");
@@ -1007,6 +1008,10 @@ try {
   }
   await page.waitForFunction(() => document.querySelectorAll(".feed-list .card").length === 3);
   check(
+    (await page.getByLabel("Sort by", { exact: true }).inputValue()) === "published",
+    "Security starts with its own reading preferences",
+  );
+  check(
     (await page.locator(".feed-list").innerText()).includes("Cryptography research"),
     "broad security research is presented in the Security feed",
   );
@@ -1028,6 +1033,10 @@ try {
   await page.getByLabel("News track").selectOption("ai");
   await page.waitForURL((url) => url.searchParams.get("track") === "ai");
   await page.getByLabel("Message the agent").waitFor();
+  check(
+    (await page.getByLabel("Sort by", { exact: true }).inputValue()) === "added",
+    "returning to AI preserves its existing reading preferences",
+  );
   check(
     (await page.getByLabel("Message the agent").inputValue()) === "AI draft stays with AI",
     "returning to AI restores its own draft and layout",

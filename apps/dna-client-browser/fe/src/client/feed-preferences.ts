@@ -2,6 +2,7 @@
 import { computed, reactive, shallowRef, watch } from "vue";
 import type { Card } from "@dna/sdk";
 import { info } from "./store";
+import { ACTIVE_TRACK_ID } from "./track";
 
 type SortBy = "published" | "added";
 type Direction = "desc" | "asc";
@@ -25,7 +26,11 @@ function write(key: string, value: unknown) {
   }
 }
 
-const scope = computed(() => `dna.reading.v1:${info.value?.device ?? "local"}`);
+// Retain the existing AI key so deployed readers keep their viewed cards and sorting.
+const scope = computed(
+  () =>
+    `dna.reading.v1:${info.value?.device ?? "local"}${ACTIVE_TRACK_ID === "ai" ? "" : `:${ACTIVE_TRACK_ID}`}`,
+);
 export const reading = reactive<Preferences>({ sortBy: "published", direction: "desc" });
 const viewed = shallowRef(new Set<string>());
 const cardKey = (card: Card) => `${card.id}:${card.createdAt}`;
