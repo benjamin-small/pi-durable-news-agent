@@ -1,6 +1,7 @@
 // The v1 wire contract shared by dna-server-api, the browser, the TUI, the CLI and cron.
 import type { CardComponent, HfsCategory } from "./components.ts";
 import type { WireAgentEvent, WireSnapshotEvent } from "./wire.ts";
+import type { Track } from "./tracks.ts";
 
 export const API_VERSION = 1 as const;
 
@@ -44,6 +45,7 @@ export interface TimelineRef {
 
 export interface TimelineSummary {
   id: number;
+  trackId?: string;
   title: string;
   count: number;
   updatedAt: string;
@@ -56,6 +58,8 @@ export interface Timeline extends TimelineSummary {
 
 export interface Card {
   id: number;
+  /** Present on track-aware servers; older v1 servers omit it. */
+  trackId?: string;
   /** Always "news" in the feed; "story" only on old story cards from before timelines. */
   kind: "news" | "story";
   component: CardComponent;
@@ -110,6 +114,7 @@ export function searchQuery(words: string[]): { by: TabBy; q: string } {
 
 export interface Keyword {
   id: number;
+  trackId?: string;
   kind: "topic" | HfsCategory;
   term: string;
   weight: number;
@@ -124,6 +129,7 @@ export type SourceOrigin = "config" | "user" | "agent" | "upvote";
 
 export interface Source {
   id: number;
+  trackId?: string;
   kind: SourceKind;
   name: string;
   url: string;
@@ -143,6 +149,7 @@ export interface Source {
 /** A site a reader upvoted, waiting for the next sweep's agent to save it as a source or skip it. */
 export interface SourceLead {
   id: number;
+  trackId?: string;
   site: string;
   url: string;
   title?: string;
@@ -154,6 +161,7 @@ export interface SourceLead {
 
 export interface TasteQuestion {
   id: number;
+  trackId?: string;
   cardId?: number;
   itemId?: number;
   question: string;
@@ -199,6 +207,7 @@ export interface SweepPhase {
 
 export interface Sweep {
   id: number;
+  trackId?: string;
   requestId: string;
   trigger: "cron" | "manual" | "test";
   status: SweepStatus;
@@ -275,6 +284,8 @@ export interface CompactionState {
 }
 
 export interface Info {
+  /** Active desk; optional for older v1 servers. */
+  track?: Track;
   ok: true;
   device: string;
   /** The device's name in dna-network.yaml, for display. */
@@ -484,7 +495,7 @@ export interface LogLine {
 }
 
 /** SSE frames on GET /v1/stream. `disconnected` is client-side only: follow() emits it between connections. */
-export type Frame =
+export type Frame = (
   | {
       type: "hello";
       apiVersion: typeof API_VERSION;
@@ -508,7 +519,8 @@ export type Frame =
   | { type: "schedule"; schedule: ScheduleState }
   /** The agent changed keywords (edit_keyword, card_feedback): the new list. */
   | { type: "taste.keywords"; keywords: Keyword[] }
-  | { type: "disconnected"; reason: string };
+  | { type: "disconnected"; reason: string }
+) & { trackId?: string };
 
 export type WhenBusy = "followUp" | "steer";
 

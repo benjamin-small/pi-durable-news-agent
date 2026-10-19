@@ -1,9 +1,11 @@
 // One row per sweep: the cron slot id, status, counts, phase timings, cost and the audit.
 import type { Sweep, SweepAudit, SweepPhase, SweepStatus } from "@dna/sdk";
-import { bind, type Db, nowIso, num, parse, str } from "../db.ts";
+import { TrackRepo } from "../track-repo.ts";
+import { bind, nowIso, num, parse, str } from "../db.ts";
 
 const toSweep = (r: any): Sweep => ({
   id: r.id,
+  trackId: r.track_id,
   requestId: r.request_id,
   trigger: r.trigger,
   status: r.status,
@@ -75,16 +77,16 @@ const COLUMNS: Record<keyof SweepPatch, string> = {
   endedAt: "ended_at",
 };
 
-export class SweepsRepo {
-  constructor(private readonly db: Db) {}
-
+export class SweepsRepo extends TrackRepo {
   byRequest(requestId: string): Sweep | undefined {
-    const r = this.db.prepare("SELECT * FROM sweeps WHERE request_id = ?").get(requestId);
+    const r = this.prepare("SELECT * FROM sweeps WHERE track_id = :track AND request_id = ?").get(
+      requestId,
+    );
     return r ? toSweep(r) : undefined;
   }
 
   get(id: number): Sweep | undefined {
-    const r = this.db.prepare("SELECT * FROM sweeps WHERE id = ?").get(id);
+    const r = this.prepare("SELECT * FROM sweeps WHERE track_id = :track AND id = ?").get(id);
     return r ? toSweep(r) : undefined;
   }
 
@@ -95,20 +97,18 @@ export class SweepsRepo {
     reason?: string;
     searchMode?: string;
   }): Sweep {
-    const r = this.db
-      .prepare(
-        "INSERT INTO sweeps (request_id, trigger, status, reason, search_mode, created_at) VALUES (:request_id, :trigger, :status, :reason, :search_mode, :now)",
-      )
-      .run(
-        bind({
-          request_id: input.requestId,
-          trigger: input.trigger,
-          status: input.status,
-          reason: input.reason,
-          search_mode: input.searchMode,
-          now: nowIso(),
-        }),
-      );
+    const r = this.prepare(
+      "INSERT INTO sweeps (track_id, request_id, trigger, status, reason, search_mode, created_at) VALUES (:track, :request_id, :trigger, :status, :reason, :search_mode, :now)",
+    ).run(
+      bind({
+        request_id: input.requestId,
+        trigger: input.trigger,
+        status: input.status,
+        reason: input.reason,
+        search_mode: input.searchMode,
+        now: nowIso(),
+      }),
+    );
     return this.get(Number(r.lastInsertRowid))!;
   }
 
@@ -116,53 +116,53 @@ export class SweepsRepo {
     const keys = (Object.keys(patch) as (keyof SweepPatch)[]).filter((k) => patch[k] !== undefined);
     if (keys.length) {
       const sets = keys.map((k) => `${COLUMNS[k]} = :${k}`).join(", ");
-      this.db.prepare(`UPDATE sweeps SET ${sets} WHERE id = :id`).run(bind({ ...patch, id }));
+      this.prepare(`UPDATE sweeps SET ${sets} WHERE track_id = :track AND id = :id`).run(
+        bind({ ...patch, id }),
+      );
     }
     return this.get(id)!;
   }
 
   /** When the newest cron sweep that actually started was created (skipped ones do not count). */
   lastCronAt(): string | undefined {
-    const r = this.db
-      .prepare(
-        "SELECT created_at FROM sweeps WHERE trigger = 'cron' AND status != 'skipped' ORDER BY id DESC LIMIT 1",
-      )
-      .get() as { created_at: string } | undefined;
+    const r = this.prepare(
+      "SELECT created_at FROM sweeps WHERE track_id = :track AND trigger = 'cron' AND status != 'skipped' ORDER BY id DESC LIMIT 1",
+    ).get() as { created_at: string } | undefined;
     return r?.created_at;
   }
 
   /** Open (queued or running) sweeps, newest first. */
   active(): Sweep[] {
     return (
-      this.db
-        .prepare("SELECT * FROM sweeps WHERE status IN ('queued', 'running') ORDER BY id DESC")
-        .all() as any[]
+      this.prepare(
+        "SELECT * FROM sweeps WHERE track_id = :track AND status IN ('queued', 'running') ORDER BY id DESC",
+      ).all() as any[]
     ).map(toSweep);
   }
 
   list(limit = 50, before?: number): Sweep[] {
     const rows = before
-      ? this.db
-          .prepare("SELECT * FROM sweeps WHERE id < ? ORDER BY id DESC LIMIT ?")
-          .all(before, limit)
-      : this.db.prepare("SELECT * FROM sweeps ORDER BY id DESC LIMIT ?").all(limit);
+      ? this.prepare(
+          "SELECT * FROM sweeps WHERE track_id = :track AND id < ? ORDER BY id DESC LIMIT ?",
+        ).all(before, limit)
+      : this.prepare("SELECT * FROM sweeps WHERE track_id = :track ORDER BY id DESC LIMIT ?").all(
+          limit,
+        );
     return (rows as any[]).map(toSweep);
   }
 
   last(): Sweep | undefined {
-    const r = this.db
-      .prepare("SELECT * FROM sweeps WHERE status NOT IN ('skipped') ORDER BY id DESC LIMIT 1")
-      .get();
+    const r = this.prepare(
+      "SELECT * FROM sweeps WHERE track_id = :track AND status NOT IN ('skipped') ORDER BY id DESC LIMIT 1",
+    ).get();
     return r ? toSweep(r) : undefined;
   }
 
   /** Start of the most recent completed sweep, for "since". */
   lastFinishedAt(): string | undefined {
-    const r = this.db
-      .prepare(
-        "SELECT started_at FROM sweeps WHERE status IN ('completed', 'no_news') AND started_at IS NOT NULL ORDER BY id DESC LIMIT 1",
-      )
-      .get() as any;
+    const r = this.prepare(
+      "SELECT started_at FROM sweeps WHERE track_id = :track AND status IN ('completed', 'no_news') AND started_at IS NOT NULL ORDER BY id DESC LIMIT 1",
+    ).get() as any;
     return str(r?.started_at);
   }
 
@@ -184,8 +184,8 @@ export class SweepsRepo {
   }
 
   touch(id: number, at = nowIso()): void {
-    this.db
-      .prepare("UPDATE sweeps SET started_at = COALESCE(started_at, ?) WHERE id = ?")
-      .run(at, id);
+    this.prepare(
+      "UPDATE sweeps SET started_at = COALESCE(started_at, ?) WHERE track_id = :track AND id = ?",
+    ).run(at, id);
   }
 }

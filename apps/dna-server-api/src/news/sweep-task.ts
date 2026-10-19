@@ -6,6 +6,7 @@ import { defineTask, type RunningTask, type TaskRuntime } from "@earendil-works/
 import { runParallel } from "@dna/durable-agent";
 import type { Deps } from "../deps.ts";
 import type { Item } from "../db/repos/news.ts";
+import type { CachedDoc } from "../db/repos/sources.ts";
 import { fetchSource } from "./sources/index.ts";
 import { rankScore, weightsOf } from "./rank.ts";
 import { planQueries } from "./taste.ts";
@@ -190,8 +191,13 @@ export function createSweepTask(deps: Deps) {
               queries: source.kind === "hn_search" ? queries : undefined,
             }),
           );
-          const docs = fetched.flatMap((f) =>
-            f.docs.map((doc) => ({ doc, sourceName: f.source.name })),
+          const docs: { doc: CachedDoc; sourceName: string; sourceId?: number }[] = fetched.flatMap(
+            (f) =>
+              f.docs.map((doc) => ({
+                doc,
+                sourceName: f.source.name,
+                sourceId: f.source.id,
+              })),
           );
           // Every topic in the bag, the last week newest first, four searches at a time.
           const searches = await runParallel(queries, 4, (query) =>
@@ -209,7 +215,7 @@ export function createSweepTask(deps: Deps) {
                 fetchVia: "feed",
                 ttlMinutes: 24 * 60,
               });
-              docs.push({ doc, sourceName: h.sourceName ?? "web search" });
+              docs.push({ doc, sourceName: h.sourceName ?? "web search", sourceId: undefined });
             }
           }
           const fresh = docs
@@ -222,11 +228,12 @@ export function createSweepTask(deps: Deps) {
                 Date.parse(b.doc.publishedAt ?? b.doc.fetchedAt) -
                 Date.parse(a.doc.publishedAt ?? a.doc.fetchedAt),
             );
-          for (const { doc, sourceName } of fresh) {
+          for (const { doc, sourceName, sourceId } of fresh) {
             store.news.upsertItem({
               sweepId,
               cacheId: doc.id,
-              sourceId: doc.sourceId,
+              // The cache's source is acquisition provenance, not this desk's subscription.
+              sourceId,
               url: doc.url,
               title: doc.title!,
               sourceName,

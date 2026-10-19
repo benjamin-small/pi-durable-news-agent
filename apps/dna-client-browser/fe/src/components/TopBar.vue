@@ -47,7 +47,9 @@ const spend = computed(() => agentState.value?.spend);
       <span class="brand-mark" aria-hidden="true"><Zap :size="17" /></span>
       <div>
         <strong>Durable News Agent</strong>
-        <span class="tagline">News Worth Your Attention</span>
+        <span class="tagline" data-testid="active-track" :title="info?.track?.description">
+          {{ info?.track?.name ?? "AI" }} desk
+        </span>
       </div>
     </div>
     <div class="agent-status" data-cap="status" :class="{ working: busy }" aria-live="polite">

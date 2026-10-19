@@ -19,13 +19,22 @@ export function migrate(db: Db, dir = MIGRATIONS_DIR): string[] {
     .sort();
   for (const name of pending) {
     const sql = readFileSync(join(dir, name), "utf8");
-    tx(db, () => {
-      db.exec(sql);
-      db.prepare("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)").run(
-        name,
-        nowIso(),
-      );
-    });
+    // SQLite table rebuilds require foreign keys off before BEGIN; validate before committing.
+    db.exec("PRAGMA foreign_keys=OFF");
+    try {
+      tx(db, () => {
+        db.exec(sql);
+        const violations = db.prepare("PRAGMA foreign_key_check").all();
+        if (violations.length)
+          throw new Error(`Migration ${name} violates foreign keys: ${JSON.stringify(violations)}`);
+        db.prepare("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)").run(
+          name,
+          nowIso(),
+        );
+      });
+    } finally {
+      db.exec("PRAGMA foreign_keys=ON");
+    }
   }
   return pending;
 }

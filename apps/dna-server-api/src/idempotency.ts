@@ -12,7 +12,7 @@ export function idempotent(db: Db, options: { skip?: string[] } = {}): RequestHa
     const key = req.get("idempotency-key");
     if (!key) return next();
     if (key.length > 128) throw invalid("Idempotency-Key must be 128 characters or fewer");
-    const route = `${req.method} ${req.baseUrl}${req.path}`;
+    const route = `${req.method} ${req.baseUrl}${req.path}?track=${res.locals.trackId}`;
     if (Date.now() - lastPurge > 3_600_000) {
       lastPurge = Date.now();
       db.prepare("DELETE FROM requests WHERE created_at < ?").run(

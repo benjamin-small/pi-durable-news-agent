@@ -17,9 +17,7 @@ export function askTaste(deps: Deps) {
     execute: async (args, api) => {
       const item = deps.store.news.item(args.item_id);
       if (!item) return toolError(`No item #${args.item_id}.`);
-      const card = deps.store.db
-        .prepare("SELECT id FROM cards WHERE item_id = ? ORDER BY id DESC LIMIT 1")
-        .get(item.id) as { id: number } | undefined;
+      const card = deps.store.news.cardForItem(item.id);
       const { question, created } = deps.store.taste.askQuestion({
         itemId: item.id,
         cardId: card?.id,

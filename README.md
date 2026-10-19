@@ -84,6 +84,26 @@ Three reusable packages in `apps/shared/packages/` carry the weight: `durable-ag
 
 ---
 
+## Editorial tracks
+
+The existing desk is now the **AI** track (`ai`). Upgrading migrates its sources, keywords, article assessments, cards, stories, feedback, schedules and other settings in place. Existing record IDs and links stay valid. The desk keeps its original durable conversation in `agent.sqlite`, including its transcript, model configuration and unfinished work.
+
+`GET /v1/tracks` lists available desks; `/v1/info` includes the active track. Existing URLs and clients still default to AI. A track-aware SDK client uses:
+
+```ts
+const ai = new DnaClient(apiUrl, token).forTrack("ai");
+await ai.feed();                  // GET /v1/feed?track=ai
+await ai.setSchedule(30);         // PATCH /v1/schedule?track=ai
+```
+
+The same `?track=ai` context applies to chat, sources, feedback, workflows and SSE. Track-aware responses identify the desk through `X-DNA-Track`; stream frames and feed records include `trackId`. Unknown or inactive desks are rejected before any work starts. Tokens retain their existing scopes across these requests.
+
+Article assessments and editorial repositories belong to a track. Two tracks can assess the same URL independently, while sharing the canonical document in `source_cache`. Source records describe each desk's subscriptions and weights; cached source IDs describe acquisition provenance. Browser tabs, layout and pending-message retry IDs have track-specific storage keys, with existing AI state migrated once.
+
+This foundation runs only the AI desk. Creating another active desk, its editorial profile, separate durable agent, scheduling across desks, spending allocations and a track switcher are follow-up work. Telemetry and provider limits remain application-wide. Per-host pacing must also coordinate across all future desks.
+
+The database migration is transactional and checks foreign keys before commit. For a deployment upgrade, stop the API and preserve both SQLite files before starting the new version; downgrading the database requires restoring that snapshot.
+
 ## How a sweep works
 
 <p align="center">

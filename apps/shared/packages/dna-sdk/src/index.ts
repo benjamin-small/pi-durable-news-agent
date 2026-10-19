@@ -11,3 +11,4 @@ export * from "./feed-model.ts";
 export * from "./client.ts";
 export * from "./capabilities.ts";
 export * from "./format.ts";
+export * from "./tracks.ts";

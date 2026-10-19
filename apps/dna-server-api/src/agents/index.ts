@@ -104,6 +104,7 @@ export function createAgents(deps: Deps): Agents {
   });
   const deskPrompt = loadPrompt(agentsDir, "news-desk", "SYSTEM_PROMPT.md", {
     device_name: deps.config.device,
+    track_name: deps.store.tracks.get(deps.store.trackId)!.name,
     search_mode: deps.search.mode,
     component_catalog: componentCatalog(),
   });

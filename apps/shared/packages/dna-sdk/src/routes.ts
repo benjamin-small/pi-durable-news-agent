@@ -13,6 +13,12 @@ export interface RouteSpec {
 }
 
 export const ROUTES = {
+  "tracks.list": {
+    method: "GET",
+    path: "/v1/tracks",
+    scope: "read",
+    summary: "Available editorial desks and their durable conversation identities",
+  },
   healthz: {
     method: "GET",
     path: "/healthz",

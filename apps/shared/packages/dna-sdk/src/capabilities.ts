@@ -8,7 +8,10 @@ export interface Capability {
 }
 
 export const CAPABILITIES = {
-  status: { summary: "Device, model, agent state and next sweep", routes: ["info", "agent.get"] },
+  status: {
+    summary: "Device, track, model, agent state and next sweep",
+    routes: ["info", "agent.get", "tracks.list"],
+  },
   "feed.read": { summary: "News cards, oldest first", routes: ["feed"] },
   "feed.search": {
     summary: "Search the news by words, a keyword or a url, in its own tab",

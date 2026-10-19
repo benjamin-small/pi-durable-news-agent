@@ -128,7 +128,15 @@ export class StreamHub {
     const { harness, ctx } = app.harness;
     const extra = parseConversations(req.query.conversations);
     const ids = [app.main.id as number, ...extra.filter((id) => id !== (app.main.id as number))];
-    const sse = openSse(res);
+    const output = openSse(res);
+    const sse: Sse = {
+      ...output,
+      get closed() {
+        return output.closed;
+      },
+      send: (frame) => output.send({ ...frame, trackId: app.track.id }),
+      sendIfChanged: (key, frame) => output.sendIfChanged(key, { ...frame, trackId: app.track.id }),
+    };
     this.open.add(sse);
     sse.onClose(() => this.open.delete(sse));
     const log = app.log.child({ stream: true });
@@ -162,7 +170,11 @@ export class StreamHub {
       sse.onClose(() => void stream.stop());
     }
 
-    sse.onClose(app.bus.subscribe((frame) => sse.send(frame)));
+    sse.onClose(
+      app.bus.subscribe((frame) => {
+        if (frame.trackId === app.track.id) sse.send(frame);
+      }),
+    );
 
     const onError = (e: unknown) => log.warn("stream.update_failed", { error: String(e) });
     const state = coalesce(

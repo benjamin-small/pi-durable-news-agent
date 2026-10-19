@@ -9,8 +9,9 @@ import { layout } from "../client/layout";
 import { agentState, api, attempt, composerFocus, draft, notify } from "../client/store";
 import ContextBar from "./ContextBar.vue";
 import ModelControls from "./ModelControls.vue";
+import { migrateTrackStorage, trackStorageKey } from "../client/track";
 
-const PENDING = "dna.pending";
+const PENDING = trackStorageKey("pending");
 const text = draft;
 const box = ref<HTMLTextAreaElement>();
 watch(composerFocus, async () => {
@@ -24,6 +25,7 @@ const busy = computed(() => agentState.value?.busy ?? false);
 
 function pendingId(content: string): string {
   try {
+    migrateTrackStorage(sessionStorage, "dna.pending", "pending");
     const p = JSON.parse(sessionStorage.getItem(PENDING) ?? "null") as {
       requestId: string;
       content: string;

@@ -1,9 +1,10 @@
-// Column layout and feed tabs in localStorage["dna.layout.v1"]: either column collapses to zero width, never both.
+// Column layout and feed tabs in track-specific localStorage: either column collapses to zero width, never both.
 // The News tab is always first. Timeline tabs open from a card's timeline chip; search, keyword and url tabs open from
 // the search box or when the agent calls open_tab. highlight_item switches to News and flashes one card.
 import { nextTick, reactive, ref, watch } from "vue";
 import type { TabBy } from "@dna/sdk";
 import { notify, onFrame } from "./store";
+import { migrateTrackStorage, trackStorageKey } from "./track";
 
 export type FeedTab =
   | { kind: "timeline"; id: number; title: string }
@@ -25,7 +26,7 @@ export interface Layout {
   tab: string;
 }
 
-export const LAYOUT_KEY = "dna.layout.v1";
+export const LAYOUT_KEY = trackStorageKey("layout.v1");
 const DEFAULTS: Layout = {
   feed: true,
   agent: true,
@@ -37,6 +38,7 @@ const DEFAULTS: Layout = {
 
 function load(): Layout {
   try {
+    migrateTrackStorage(localStorage, "dna.layout.v1", "layout.v1");
     const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "{}") as Record<string, any>;
     const merged = { ...DEFAULTS, ...saved } as Layout;
     if (!merged.feed && !merged.agent) merged.feed = true;

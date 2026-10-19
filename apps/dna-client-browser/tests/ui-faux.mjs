@@ -87,7 +87,7 @@ const hub = run(
   { DNA_API_URL: apiUrl, DNA_CLIENT_TOKEN: tokens.client, DNA_TARGET: "local" },
   app,
 );
-const base = `http://localhost:${hubPort}`;
+const base = `http://127.0.0.1:${hubPort}`;
 await waitHttp(`${base}/hub/healthz`, hub);
 
 const call = async (method, path, body, tok = tokens.client) => {
@@ -126,6 +126,10 @@ fixtureDb.close();
 
 const browser = await chromium.launch({ channel: "chrome", headless: !process.env.HEADED });
 const context = await browser.newContext({ viewport: { width: 1600, height: 1000 } });
+await context.addInitScript(() => {
+  if (!localStorage.getItem("dna.track.ai.layout.v1"))
+    localStorage.setItem("dna.layout.v1", JSON.stringify({ agentWidth: 600 }));
+});
 await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
 const errors = [];
 const page = await context.newPage();
@@ -156,6 +160,18 @@ try {
   await page.locator(".card").first().waitFor();
   await page.waitForFunction(() => document.querySelectorAll(".card").length >= 3);
   await page.locator('[data-role="agent"]').first().waitFor();
+  check(
+    (await page.getByTestId("active-track").innerText()) === "AI desk",
+    "the active AI desk is identified",
+  );
+  check(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("dna.track.ai.layout.v1") ?? "{}").agentWidth === 600 &&
+        localStorage.getItem("dna.layout.v1") === null,
+    ),
+    "existing browser layout moves into the AI track",
+  );
   await page.screenshot({ path: join(shots, "main.png") });
 
   // ---------------------------------------------------------------- feed

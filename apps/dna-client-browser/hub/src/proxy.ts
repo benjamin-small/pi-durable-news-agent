@@ -31,7 +31,13 @@ export function proxy(
           : AbortSignal.any([closed.signal, AbortSignal.timeout(330_000)]),
       });
       res.status(upstream.status);
-      for (const h of ["content-type", "cache-control", "idempotent-replay", "x-request-id"]) {
+      for (const h of [
+        "content-type",
+        "cache-control",
+        "idempotent-replay",
+        "x-request-id",
+        "x-dna-track",
+      ]) {
         const v = upstream.headers.get(h);
         if (v) res.set(h, v);
       }

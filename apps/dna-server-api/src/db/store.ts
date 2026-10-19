@@ -10,9 +10,13 @@ import { SourcesRepo, type SourceSeed } from "./repos/sources.ts";
 import { SweepsRepo } from "./repos/sweeps.ts";
 import { TasteRepo, type KeywordKind } from "./repos/taste.ts";
 import { TelemetryRepo } from "./repos/telemetry.ts";
+import { TracksRepo } from "./repos/tracks.ts";
+import { DEFAULT_TRACK_ID } from "@dna/sdk";
 
 export interface Store {
   db: Db;
+  readonly trackId: string;
+  tracks: TracksRepo;
   settings: SettingsRepo;
   sources: SourcesRepo;
   news: NewsRepo;
@@ -29,11 +33,13 @@ export function openStore(dataDir: string, configDir: string): Store {
   migrate(db);
   const store: Store = {
     db,
-    settings: new SettingsRepo(db),
-    sources: new SourcesRepo(db),
-    news: new NewsRepo(db),
-    taste: new TasteRepo(db),
-    sweeps: new SweepsRepo(db),
+    trackId: DEFAULT_TRACK_ID,
+    tracks: new TracksRepo(db),
+    settings: new SettingsRepo(db, DEFAULT_TRACK_ID),
+    sources: new SourcesRepo(db, DEFAULT_TRACK_ID),
+    news: new NewsRepo(db, DEFAULT_TRACK_ID),
+    taste: new TasteRepo(db, DEFAULT_TRACK_ID),
+    sweeps: new SweepsRepo(db, DEFAULT_TRACK_ID),
     telemetry: new TelemetryRepo(db),
     close() {
       try {
