@@ -1,6 +1,6 @@
 // App state: one stream feeds the agent reducer (main conversation) and the feed reducer; REST fills the snapshot
 // on every (re)connect, because streams never replay.
-import { computed, reactive, ref, shallowRef } from "vue";
+import { computed, reactive, ref, shallowRef, watch } from "vue";
 import {
   AgentModel,
   DnaClient,
@@ -10,9 +10,10 @@ import {
   type ConnectionState,
   type Frame,
   type Info,
+  type Track,
   type ToolCallRow,
 } from "@dna/sdk";
-import { ACTIVE_TRACK_ID } from "./track";
+import { ACTIVE_TRACK_ID, trackStorageKey } from "./track";
 
 export const api = new DnaClient("/api").forTrack(ACTIVE_TRACK_ID);
 export const feed = new FeedModel();
@@ -22,6 +23,7 @@ export const agent = new AgentModel();
 export const agentView = shallowRef({ ...agent.state });
 agent.subscribe(() => (agentView.value = { ...agent.state }));
 export const info = shallowRef<Info>();
+export const tracks = shallowRef<Track[]>([]);
 export const agentState = computed(() => feedState.value.agent);
 export const connection = ref<ConnectionState>("connecting");
 /** Telemetry rows for the main agent's tool calls, by provider call id: duration, tokens, cost. */
@@ -30,7 +32,19 @@ export const now = ref(Date.now());
 setInterval(() => (now.value = Date.now()), 1000);
 
 /** The composer's text, shared so a card can drop a reference into it. */
-export const draft = ref("");
+function savedDraft(): string {
+  try {
+    return sessionStorage.getItem(trackStorageKey("draft")) ?? "";
+  } catch {
+    return "";
+  }
+}
+export const draft = ref(savedDraft());
+watch(draft, (value) => {
+  try {
+    sessionStorage.setItem(trackStorageKey("draft"), value);
+  } catch {}
+});
 /** Bumped to focus the composer. */
 export const composerFocus = ref(0);
 /** Append a reference to the composer and focus it. */
@@ -97,6 +111,10 @@ function refreshTools() {
 
 export function start(): () => void {
   const stop = new AbortController();
+  void new DnaClient("/api")
+    .tracks()
+    .then((available) => (tracks.value = available))
+    .catch(() => {});
   void follow(
     (signal) => api.stream(signal),
     (frame) => {

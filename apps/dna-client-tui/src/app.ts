@@ -125,6 +125,7 @@ export class App {
     void follow(
       (signal) => this.client.stream(signal),
       (frame) => {
+        if (frame.trackId && frame.trackId !== (this.client.trackId ?? "ai")) return;
         if (frame.type === "hello") void this.loadSnapshot();
         this.agent.apply(frame);
         this.feed.apply(frame);
@@ -676,7 +677,7 @@ export class App {
           ? c.warn("◌ connecting")
           : c.err(`○ ${this.connection}`);
     const state = this.busy() ? c.accent("◐ Working") : c.muted(`◷ Waiting, ${this.nextSweep()}`);
-    this.header.text = ` ${c.bold(c.accent("Durable News Agent"))}  ${c.muted("News Worth Your Attention")}   ${c.muted("device")} ${this.info?.deviceName ?? this.device}   ${conn}   ${state}   ${c.faint(`[${this.mode}]`)}`;
+    this.header.text = ` ${c.bold(c.accent("Durable News Agent"))}  ${c.muted(`${this.info?.track?.name ?? "AI"} desk`)}   ${c.muted("device")} ${this.info?.deviceName ?? this.device}   ${conn}   ${state}   ${c.faint(`[${this.mode}]`)}`;
     this.status.setText(this.statusLines().join("\n"));
     const a = this.feed.state.agent;
     const usage = sumUsage(s.usage);

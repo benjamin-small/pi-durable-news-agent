@@ -35,3 +35,7 @@ Your final answer is relayed to the reader by the desk. Write it in clean markdo
 - **Unknown**: what you could not confirm, and why.
 
 Never use em dashes or en dashes. Keep each bullet to one or two sentences.
+
+## Desk policy
+
+{{editorial_rules}}

@@ -50,7 +50,7 @@ test("unknown, malformed and inactive tracks fail before replay, settings change
   await server.client.send({ content: "AI retry", requestId: "same-key", waitMs: 10_000 });
   await assert.rejects(
     server.client
-      .forTrack("cyber-security")
+      .forTrack("unknown-security")
       .send({ content: "wrong track", requestId: "same-key" }),
     status(404),
   );
@@ -76,7 +76,7 @@ test("unknown, malformed and inactive tracks fail before replay, settings change
     headers: { authorization: `Bearer ${server.tokens.client}` },
   });
   assert.equal(response.status, 400);
-  assert.equal((await server.client.tracks()).length, 1);
+  assert.equal((await server.client.tracks()).length, 2);
   assert.equal((await server.client.schedule()).everyMinutes, 30);
   const check = openDb(join(server.dir, "dna.sqlite"));
   assert.equal(check.prepare("SELECT count(*) n FROM sweeps").get()!.n, count);

@@ -19,17 +19,31 @@ export function workflowRoutes({
         oneOf(body.trigger, "trigger", ["cron", "manual", "test"] as const, true) ?? "cron";
       const scheduled = bool(body, "scheduled") ?? false;
       const cards = num(body, "cards", { min: 1, max: MAX_CARDS, integer: true });
-      const result = await startNewsSweep(app, app.main, app.ctx, {
-        trigger,
-        requestId,
-        scheduled,
-        cards,
-      });
+      const targets = scheduled && req.query.track === undefined ? [...app.desks.values()] : [app];
+      const trackResults = await Promise.all(
+        targets.map(async (desk) => {
+          const result = await startNewsSweep(desk, desk.main, desk.ctx, {
+            trigger,
+            requestId,
+            scheduled,
+            cards,
+          });
+          return {
+            ...result,
+            trackId: desk.track.id,
+            sweep: result.sweep && {
+              ...result.sweep,
+              cost: desk.store.telemetry.sweepCost(result.sweep.id),
+            },
+          };
+        }),
+      );
+      const selected = trackResults.find((r) => r.status === "accepted") ?? trackResults[0];
+      const result = { ...selected, ...(targets.length > 1 ? { trackResults } : {}) };
+      if (targets.length > 1) res.set("X-DNA-Track", "all");
       if (result.status === "not_due") return res.status(200).json(result);
       if (result.status === "replay") res.set("Idempotent-Replay", "true");
-      res
-        .status(result.status === "accepted" ? 202 : 200)
-        .json({ ...result, sweep: withCost(result.sweep!) });
+      res.status(result.status === "accepted" ? 202 : 200).json(result);
     },
     "sweeps.list": (req, res) =>
       res.json(

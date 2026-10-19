@@ -1,5 +1,5 @@
 // dna-tui: the terminal client for one device. Plain text goes to the agent; slash commands do everything else.
-//   dna-tui [--device <id>] [--url <url>]      the device comes from dna-network.yaml (DNA_TARGET, default local)
+//   dna-tui [--device <id>] [--url <url>] [--track ai|cyber-security]      the device comes from dna-network.yaml (DNA_TARGET, default local)
 import { parseArgs } from "node:util";
 import { DnaClient } from "@dna/sdk";
 import { loadNetwork, loadRootEnv, targetUrl } from "@dna/sdk/node";
@@ -9,6 +9,7 @@ if (process.env.DNA_ENV_FILE !== "none") loadRootEnv(process.env.DNA_ENV_FILE ||
 const { values } = parseArgs({
   options: {
     device: { type: "string" },
+    track: { type: "string" },
     url: { type: "string" },
     help: { type: "boolean", short: "h" },
   },
@@ -16,7 +17,7 @@ const { values } = parseArgs({
 });
 if (values.help) {
   console.log(
-    "usage: dna-tui [--device <id>] [--url <url>]\n\nThe client token comes from DNA_CLIENT_TOKEN in the root .env.",
+    "usage: dna-tui [--device <id>] [--url <url>] [--track ai|cyber-security]\n\nThe client token comes from DNA_CLIENT_TOKEN in the root .env.",
   );
   process.exit(0);
 }
@@ -27,9 +28,10 @@ if (!token) {
   console.error("DNA_CLIENT_TOKEN is missing. Run: just api tokens");
   process.exit(1);
 }
-const client = new DnaClient(url, token);
+let client: DnaClient;
 try {
-  await client.healthz();
+  client = new DnaClient(url, token, values.track ?? process.env.DNA_TRACK);
+  await client.info();
 } catch (error) {
   console.error(`${device} at ${url} did not answer: ${(error as Error).message}`);
   process.exit(1);

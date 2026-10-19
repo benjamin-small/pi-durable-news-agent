@@ -1,5 +1,5 @@
 // The main agent's state for GET /v1/agent and the agent.state frame.
-import { sumUsage, type AgentState } from "@dna/sdk";
+import { type AgentState } from "@dna/sdk";
 import { deepResearchSetting } from "./news/deep-research.ts";
 import type { App } from "./runtime.ts";
 
@@ -16,7 +16,8 @@ export async function agentState(app: App): Promise<AgentState> {
   } finally {
     graph.dispose();
   }
-  const total = sumUsage(JSON.parse(JSON.stringify(await harness.usage(ctx))));
+  const total = app.modelUsage();
+  const spend = app.store.telemetry.spend();
   return {
     conversationId: app.main.id as number,
     model: model.id,
@@ -35,7 +36,7 @@ export async function agentState(app: App): Promise<AgentState> {
       cacheRead: total.cacheRead,
       cacheWrite: total.cacheWrite,
     },
-    spend: app.store.telemetry.spend(),
+    spend: { ...spend, modelUsd: total.cost, totalUsd: total.cost + spend.jevUsd + spend.imageUsd },
     lastActivityAt: app.store.telemetry.lastActivityAt(),
     nextSweepAt: app.schedule.next()?.toISOString(),
     schedule: app.schedule.state(),

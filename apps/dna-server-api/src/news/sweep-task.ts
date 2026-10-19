@@ -1,3 +1,4 @@
+import { trackName } from "./profiles.ts";
 // dna.news-sweep: the checkpointed part of every sweep. gather, gate, dedupe, rank; a retry phase with a durable
 // backoff on failure. Every phase commits progress, so a crash resumes at the last checkpoint and never pays jev or
 // Firecrawl twice for finished work.
@@ -162,7 +163,7 @@ export function createSweepTask(deps: Deps) {
   }
 
   return defineTask<SweepInput, SweepState, SweepResult>({
-    name: "dna.news-sweep",
+    name: trackName(deps, "dna.news-sweep"),
     version: 1,
     initial: () => ({ phase: "gather" }),
     phases: {

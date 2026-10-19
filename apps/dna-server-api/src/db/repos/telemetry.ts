@@ -158,103 +158,147 @@ export class TelemetryRepo implements TelemetryStore {
     private readonly db: Db,
     private readonly agentOf: (rec: ConversationTelemetry) => string = (rec) =>
       rec.ownerTaskId ? "news-researcher" : "news-desk",
+    readonly trackId?: string,
   ) {}
+
+  private prepare(sql: string) {
+    const statement = this.db.prepare(sql);
+    const params = (args: any[]) => {
+      const named = args[0] && typeof args[0] === "object" && !(args[0] instanceof Uint8Array);
+      return [
+        { ...(named ? args[0] : {}), track: this.trackId ?? null },
+        ...(named ? args.slice(1) : args),
+      ] as [Record<string, any>, ...any[]];
+    };
+    return {
+      all: (...args: any[]) => statement.all(...params(args)),
+      get: (...args: any[]) => statement.get(...params(args)),
+      run: (...args: any[]) => statement.run(...params(args)),
+    };
+  }
+
+  private trackOf(conversationId?: number, parentId?: number, sweepId?: number): string {
+    if (this.trackId) return this.trackId;
+    const root =
+      conversationId &&
+      this.db.prepare("SELECT id FROM tracks WHERE conversation_id = ?").get(conversationId);
+    if (root) return String(root.id);
+    const conversation =
+      this.db
+        .prepare("SELECT track_id FROM agent_conversations WHERE conversation_id = ?")
+        .get(conversationId ?? parentId ?? -1) ??
+      this.db
+        .prepare("SELECT track_id FROM agent_conversations WHERE conversation_id = ?")
+        .get(parentId ?? -1);
+    if (conversation) return String(conversation.track_id);
+    const sweep =
+      sweepId && this.db.prepare("SELECT track_id FROM sweeps WHERE id = ?").get(sweepId);
+    return sweep ? String(sweep.track_id) : "ai";
+  }
+
+  ownsConversation(id: number): boolean {
+    if (!this.trackId) return true;
+    return !!this.db
+      .prepare(
+        "SELECT 1 FROM tracks WHERE conversation_id = ? AND id = ? UNION ALL SELECT 1 FROM agent_conversations WHERE conversation_id = ? AND track_id = ?",
+      )
+      .get(id, this.trackId, id, this.trackId);
+  }
 
   // TelemetryStore
 
   conversation(rec: ConversationTelemetry): void {
     const owner = rec.ownerTaskId
-      ? (this.db
-          .prepare("SELECT sweep_id FROM tool_calls WHERE task_id = ?")
-          .get(rec.ownerTaskId) as any)
+      ? (this.prepare(
+          "SELECT sweep_id FROM tool_calls WHERE (:track IS NULL OR track_id = :track) AND task_id = ?",
+        ).get(rec.ownerTaskId) as any)
       : undefined;
-    this.db
-      .prepare(
-        "INSERT OR IGNORE INTO agent_conversations (conversation_id, agent, owner_conversation_id, owner_task_id, parent_conversation_id, sweep_id, created_at) VALUES (:id, :agent, :oc, :ot, :pc, :sweep, :now)",
-      )
-      .run(
-        bind({
-          id: rec.conversationId,
-          agent: this.agentOf(rec),
-          oc: rec.ownerConversationId,
-          ot: rec.ownerTaskId,
-          pc: rec.parentConversationId,
-          sweep: owner?.sweep_id,
-          now: nowIso(),
-        }),
-      );
+    this.prepare(
+      "INSERT OR IGNORE INTO agent_conversations (track_id, conversation_id, agent, owner_conversation_id, owner_task_id, parent_conversation_id, sweep_id, created_at) VALUES (:write_track, :id, :agent, :oc, :ot, :pc, :sweep, :now)",
+    ).run(
+      bind({
+        write_track: this.trackOf(
+          rec.conversationId,
+          rec.ownerConversationId ?? rec.parentConversationId,
+        ),
+        id: rec.conversationId,
+        agent: this.agentOf(rec),
+        oc: rec.ownerConversationId,
+        ot: rec.ownerTaskId,
+        pc: rec.parentConversationId,
+        sweep: owner?.sweep_id,
+        now: nowIso(),
+      }),
+    );
   }
 
   userInput(rec: UserInputTelemetry): void {
-    const conv = this.db
-      .prepare("SELECT sweep_id FROM agent_conversations WHERE conversation_id = ?")
-      .get(rec.conversationId) as any;
-    this.db
-      .prepare(
-        "INSERT OR IGNORE INTO agent_runs (run_entry_id, conversation_id, sweep_id, text, started_at) VALUES (:id, :conv, :sweep, :text, :at)",
-      )
-      .run(
-        bind({
-          id: rec.entryId,
-          conv: rec.conversationId,
-          sweep: conv?.sweep_id,
-          text: rec.text.slice(0, 4000),
-          at: rec.timestamp,
-        }),
-      );
+    const conv = this.prepare(
+      "SELECT sweep_id FROM agent_conversations WHERE (:track IS NULL OR track_id = :track) AND conversation_id = ?",
+    ).get(rec.conversationId) as any;
+    this.prepare(
+      "INSERT OR IGNORE INTO agent_runs (track_id, run_entry_id, conversation_id, sweep_id, text, started_at) VALUES (:write_track, :id, :conv, :sweep, :text, :at)",
+    ).run(
+      bind({
+        write_track: this.trackOf(rec.conversationId, undefined),
+        id: rec.entryId,
+        conv: rec.conversationId,
+        sweep: conv?.sweep_id,
+        text: rec.text.slice(0, 4000),
+        at: rec.timestamp,
+      }),
+    );
   }
 
   private currentRun(
     conversationId: number,
   ): { run_entry_id: number; sweep_id: number | null } | undefined {
-    return this.db
-      .prepare(
-        "SELECT run_entry_id, sweep_id FROM agent_runs WHERE conversation_id = ? ORDER BY run_entry_id DESC LIMIT 1",
-      )
-      .get(conversationId) as any;
+    return this.prepare(
+      "SELECT run_entry_id, sweep_id FROM agent_runs WHERE (:track IS NULL OR track_id = :track) AND conversation_id = ? ORDER BY run_entry_id DESC LIMIT 1",
+    ).get(conversationId) as any;
   }
 
   generation(rec: GenerationTelemetry): void {
     const run = this.currentRun(rec.conversationId);
     const endedAt = rec.durationMs !== undefined ? rec.timestamp + rec.durationMs : undefined;
-    this.db
-      .prepare(
-        `INSERT OR REPLACE INTO generations (entry_id, conversation_id, run_entry_id, task_id, sweep_id, provider, model, stop_reason, error, input_tokens, output_tokens,
+    this.prepare(
+      `INSERT OR REPLACE INTO generations (track_id, entry_id, conversation_id, run_entry_id, task_id, sweep_id, provider, model, stop_reason, error, input_tokens, output_tokens,
            cache_read_tokens, cache_write_tokens, total_tokens, cost_usd, context_tokens, duration_ms, thinking_chars, text, tool_calls, started_at, ended_at)
-         VALUES (:entry_id, :conversation_id, :run, :task_id, :sweep, :provider, :model, :stop, :error, :input, :output, :cr, :cw, :total, :cost, :ctx, :dur, :thinking, :text, :calls, :started, :ended)`,
-      )
-      .run(
-        bind({
-          entry_id: rec.entryId,
-          conversation_id: rec.conversationId,
-          run: run?.run_entry_id,
-          task_id: rec.taskId,
-          sweep: run?.sweep_id,
-          provider: rec.provider,
-          model: rec.model,
-          stop: rec.stopReason,
-          error: rec.errorMessage,
-          input: rec.usage.input,
-          output: rec.usage.output,
-          cr: rec.usage.cacheRead,
-          cw: rec.usage.cacheWrite,
-          total: rec.usage.totalTokens,
-          cost: rec.usage.cost,
-          ctx: rec.contextTokens,
-          dur: rec.durationMs,
-          thinking: rec.thinkingChars,
-          text: rec.text.slice(0, RESULT_CAP),
-          calls: rec.toolCalls.length,
-          started: rec.timestamp,
-          ended: endedAt,
-        }),
-      );
-    const insert = this.db.prepare(
-      "INSERT OR IGNORE INTO tool_calls (generation_entry_id, call_id, conversation_id, run_entry_id, sweep_id, tool_name, args_json) VALUES (:gen, :call, :conv, :run, :sweep, :name, :args)",
+         VALUES (:write_track, :entry_id, :conversation_id, :run, :task_id, :sweep, :provider, :model, :stop, :error, :input, :output, :cr, :cw, :total, :cost, :ctx, :dur, :thinking, :text, :calls, :started, :ended)`,
+    ).run(
+      bind({
+        write_track: this.trackOf(rec.conversationId, undefined),
+        entry_id: rec.entryId,
+        conversation_id: rec.conversationId,
+        run: run?.run_entry_id,
+        task_id: rec.taskId,
+        sweep: run?.sweep_id,
+        provider: rec.provider,
+        model: rec.model,
+        stop: rec.stopReason,
+        error: rec.errorMessage,
+        input: rec.usage.input,
+        output: rec.usage.output,
+        cr: rec.usage.cacheRead,
+        cw: rec.usage.cacheWrite,
+        total: rec.usage.totalTokens,
+        cost: rec.usage.cost,
+        ctx: rec.contextTokens,
+        dur: rec.durationMs,
+        thinking: rec.thinkingChars,
+        text: rec.text.slice(0, RESULT_CAP),
+        calls: rec.toolCalls.length,
+        started: rec.timestamp,
+        ended: endedAt,
+      }),
+    );
+    const insert = this.prepare(
+      "INSERT OR IGNORE INTO tool_calls (track_id, generation_entry_id, call_id, conversation_id, run_entry_id, sweep_id, tool_name, args_json) VALUES (:write_track, :gen, :call, :conv, :run, :sweep, :name, :args)",
     );
     for (const c of rec.toolCalls) {
       insert.run(
         bind({
+          write_track: this.trackOf(rec.conversationId, undefined),
           gen: rec.entryId,
           call: c.id,
           conv: rec.conversationId,
@@ -268,49 +312,47 @@ export class TelemetryRepo implements TelemetryStore {
     if (run) {
       const status =
         rec.stopReason === "error" ? "error" : rec.toolCalls.length ? "running" : "done";
-      this.db
-        .prepare(
-          "UPDATE agent_runs SET ended_at = :ended, status = CASE WHEN status = 'done' THEN status ELSE :status END, answer_entry_id = CASE WHEN :done = 1 THEN :entry ELSE answer_entry_id END WHERE run_entry_id = :run",
-        )
-        .run(
-          bind({
-            ended: endedAt ?? rec.timestamp,
-            status,
-            done: status === "done",
-            entry: rec.entryId,
-            run: run.run_entry_id,
-          }),
-        );
+      this.prepare(
+        "UPDATE agent_runs SET ended_at = :ended, status = CASE WHEN status = 'done' THEN status ELSE :status END, answer_entry_id = CASE WHEN :done = 1 THEN :entry ELSE answer_entry_id END WHERE (:track IS NULL OR track_id = :track) AND run_entry_id = :run",
+      ).run(
+        bind({
+          write_track: this.trackOf(rec.conversationId, undefined),
+          ended: endedAt ?? rec.timestamp,
+          status,
+          done: status === "done",
+          entry: rec.entryId,
+          run: run.run_entry_id,
+        }),
+      );
     }
   }
 
   task(rec: TaskTelemetry): void {
-    this.db
-      .prepare(
-        `INSERT INTO tasks (task_id, conversation_id, kind, owner_task_id, background, status, outcome, error, started_at, ended_at)
-         VALUES (:id, :conv, :kind, :owner, :bg, :status, :outcome, :error, :started, :ended)
+    this.prepare(
+      `INSERT INTO tasks (track_id, task_id, conversation_id, kind, owner_task_id, background, status, outcome, error, started_at, ended_at)
+         VALUES (:write_track, :id, :conv, :kind, :owner, :bg, :status, :outcome, :error, :started, :ended)
          ON CONFLICT (task_id) DO UPDATE SET status = excluded.status, outcome = excluded.outcome, error = excluded.error,
            started_at = COALESCE(excluded.started_at, tasks.started_at), ended_at = COALESCE(excluded.ended_at, tasks.ended_at)`,
-      )
-      .run(
-        bind({
-          id: rec.taskId,
-          conv: rec.conversationId,
-          kind: rec.kind,
-          owner: rec.ownerTaskId,
-          bg: rec.background,
-          status: rec.status,
-          outcome: rec.outcome,
-          error: rec.error,
-          started: rec.startedAt,
-          ended: rec.endedAt,
-        }),
-      );
+    ).run(
+      bind({
+        write_track: this.trackOf(rec.conversationId, undefined),
+        id: rec.taskId,
+        conv: rec.conversationId,
+        kind: rec.kind,
+        owner: rec.ownerTaskId,
+        bg: rec.background,
+        status: rec.status,
+        outcome: rec.outcome,
+        error: rec.error,
+        started: rec.startedAt,
+        ended: rec.endedAt,
+      }),
+    );
     // A deep dive's subagents are owned by its dna.deep-research task, projected after them in the same commit.
-    if (rec.kind === "dna.deep-research")
-      this.db
-        .prepare("UPDATE agent_conversations SET agent = 'deep-research' WHERE owner_task_id = ?")
-        .run(rec.taskId);
+    if (rec.kind.startsWith("dna.deep-research"))
+      this.prepare(
+        "UPDATE agent_conversations SET agent = 'deep-research' WHERE (:track IS NULL OR track_id = :track) AND owner_task_id = ?",
+      ).run(rec.taskId);
     if (rec.kind === "pi.tool") {
       const input = rec.input as { assistant?: number; callId?: string };
       if (input?.assistant === undefined || !input.callId) return;
@@ -320,22 +362,21 @@ export class TelemetryRepo implements TelemetryStore {
             ? "done"
             : (rec.outcome ?? "done")
           : rec.status;
-      this.db
-        .prepare(
-          `UPDATE tool_calls SET task_id = :task, started_at = COALESCE(:started, started_at), ended_at = COALESCE(:ended, ended_at),
+      this.prepare(
+        `UPDATE tool_calls SET task_id = :task, started_at = COALESCE(:started, started_at), ended_at = COALESCE(:ended, ended_at),
              status = CASE WHEN status IN ('done', 'error') THEN status ELSE :status END
-           WHERE generation_entry_id = :gen AND call_id = :call`,
-        )
-        .run(
-          bind({
-            task: rec.taskId,
-            started: rec.startedAt,
-            ended: rec.endedAt,
-            status,
-            gen: input.assistant,
-            call: input.callId,
-          }),
-        );
+           WHERE (:track IS NULL OR track_id = :track) AND generation_entry_id = :gen AND call_id = :call`,
+      ).run(
+        bind({
+          write_track: this.trackOf(rec.conversationId, undefined),
+          task: rec.taskId,
+          started: rec.startedAt,
+          ended: rec.endedAt,
+          status,
+          gen: input.assistant,
+          call: input.callId,
+        }),
+      );
     }
   }
 
@@ -356,43 +397,41 @@ export class TelemetryRepo implements TelemetryStore {
       "is_error = :is_error, result_text = :text, details_json = :details, result_entry_id = :entry, duration_ms = :dur, status = :status, tool_cost_usd = tool_cost_usd + :cost";
     const byTask =
       rec.taskId !== undefined
-        ? this.db.prepare(`UPDATE tool_calls SET ${set} WHERE task_id = :task`).run(params)
+        ? this.prepare(
+            `UPDATE tool_calls SET ${set} WHERE (:track IS NULL OR track_id = :track) AND task_id = :task`,
+          ).run(params)
         : undefined;
     if (!byTask || Number(byTask.changes) === 0) {
-      this.db
-        .prepare(
-          `UPDATE tool_calls SET ${set} WHERE id = (SELECT id FROM tool_calls WHERE conversation_id = :conv AND call_id = :call ORDER BY id DESC LIMIT 1)`,
-        )
-        .run(params);
+      this.prepare(
+        `UPDATE tool_calls SET ${set} WHERE (:track IS NULL OR track_id = :track) AND id = (SELECT id FROM tool_calls WHERE (:track IS NULL OR track_id = :track) AND conversation_id = :conv AND call_id = :call ORDER BY id DESC LIMIT 1)`,
+      ).run(params);
     }
   }
 
   submission(rec: SubmissionTelemetry): void {
     if (rec.type !== "input" || rec.entryId === undefined) return;
     const sweep = sweepOfRequest(rec.requestId);
-    this.db
-      .prepare(
-        "UPDATE agent_runs SET request_id = COALESCE(:req, request_id), submission_id = :sub, sweep_id = COALESCE(:sweep, sweep_id), status = CASE WHEN :status = 'unanswered' THEN 'unanswered' ELSE status END WHERE run_entry_id = :entry",
-      )
-      .run(
-        bind({
-          req: rec.requestId,
-          sub: rec.submissionId,
-          sweep,
-          status: rec.status,
-          entry: rec.entryId,
-        }),
-      );
+    this.prepare(
+      "UPDATE agent_runs SET request_id = COALESCE(:req, request_id), submission_id = :sub, sweep_id = COALESCE(:sweep, sweep_id), status = CASE WHEN :status = 'unanswered' THEN 'unanswered' ELSE status END WHERE (:track IS NULL OR track_id = :track) AND run_entry_id = :entry",
+    ).run(
+      bind({
+        req: rec.requestId,
+        sub: rec.submissionId,
+        sweep,
+        status: rec.status,
+        entry: rec.entryId,
+      }),
+    );
     if (sweep) {
-      this.db
-        .prepare("UPDATE generations SET sweep_id = ? WHERE run_entry_id = ? AND sweep_id IS NULL")
-        .run(sweep, rec.entryId);
-      this.db
-        .prepare("UPDATE tool_calls SET sweep_id = ? WHERE run_entry_id = ? AND sweep_id IS NULL")
-        .run(sweep, rec.entryId);
-      this.db
-        .prepare("UPDATE sweeps SET submission_id = ?, run_entry_id = ? WHERE id = ?")
-        .run(rec.submissionId, rec.entryId, sweep);
+      this.prepare(
+        "UPDATE generations SET sweep_id = ? WHERE (:track IS NULL OR track_id = :track) AND run_entry_id = ? AND sweep_id IS NULL",
+      ).run(sweep, rec.entryId);
+      this.prepare(
+        "UPDATE tool_calls SET sweep_id = ? WHERE (:track IS NULL OR track_id = :track) AND run_entry_id = ? AND sweep_id IS NULL",
+      ).run(sweep, rec.entryId);
+      this.prepare(
+        "UPDATE sweeps SET submission_id = ?, run_entry_id = ? WHERE (:track IS NULL OR track_id = :track) AND id = ?",
+      ).run(rec.submissionId, rec.entryId, sweep);
     }
   }
 
@@ -412,22 +451,25 @@ export class TelemetryRepo implements TelemetryStore {
 
   event(e: AgentHookEvent): void {
     const run = e.conversationId ? this.currentRun(e.conversationId) : undefined;
-    this.db
-      .prepare(
-        "INSERT INTO events (ts, level, event, conversation_id, task_id, call_id, sweep_id, data_json) VALUES (:ts, :level, :event, :conv, :task, :call, :sweep, :data)",
-      )
-      .run(
-        bind({
-          ts: nowIso(),
-          level: e.level,
-          event: e.event,
-          conv: e.conversationId,
-          task: e.taskId,
-          call: typeof e.data.callId === "string" ? e.data.callId : undefined,
-          sweep: e.data.sweepId ?? run?.sweep_id,
-          data: e.data,
-        }),
-      );
+    this.prepare(
+      "INSERT INTO events (track_id, ts, level, event, conversation_id, task_id, call_id, sweep_id, data_json) VALUES (:write_track, :ts, :level, :event, :conv, :task, :call, :sweep, :data)",
+    ).run(
+      bind({
+        write_track: this.trackOf(
+          e.conversationId,
+          undefined,
+          typeof e.data.sweepId === "number" ? e.data.sweepId : undefined,
+        ),
+        ts: nowIso(),
+        level: e.level,
+        event: e.event,
+        conv: e.conversationId,
+        task: e.taskId,
+        call: typeof e.data.callId === "string" ? e.data.callId : undefined,
+        sweep: e.data.sweepId ?? run?.sweep_id,
+        data: e.data,
+      }),
+    );
   }
 
   events(filter: {
@@ -438,27 +480,25 @@ export class TelemetryRepo implements TelemetryStore {
     until?: number;
     limit?: number;
   }): AgentEventRow[] {
-    const where: string[] = [];
+    const where: string[] = ["(:track IS NULL OR track_id = :track)"];
     if (filter.sweepId) where.push("sweep_id = :sweep");
     if (filter.conversationId) where.push("conversation_id = :conv");
     if (filter.callId) where.push("call_id = :call");
     if (filter.since) where.push("ts >= :since");
     if (filter.until) where.push("ts <= :until");
     return (
-      this.db
-        .prepare(
-          `SELECT * FROM events ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY id DESC LIMIT :limit`,
-        )
-        .all(
-          bind({
-            sweep: filter.sweepId,
-            conv: filter.conversationId,
-            call: filter.callId,
-            since: filter.since ? new Date(filter.since).toISOString() : undefined,
-            until: filter.until ? new Date(filter.until).toISOString() : undefined,
-            limit: filter.limit ?? 200,
-          }),
-        ) as any[]
+      this.prepare(
+        `SELECT * FROM events ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY id DESC LIMIT :limit`,
+      ).all(
+        bind({
+          sweep: filter.sweepId,
+          conv: filter.conversationId,
+          call: filter.callId,
+          since: filter.since ? new Date(filter.since).toISOString() : undefined,
+          until: filter.until ? new Date(filter.until).toISOString() : undefined,
+          limit: filter.limit ?? 200,
+        }),
+      ) as any[]
     )
       .map(toEvent)
       .reverse();
@@ -467,78 +507,74 @@ export class TelemetryRepo implements TelemetryStore {
   // Jev and Firecrawl
 
   jev(input: JevCallInput): number {
-    const r = this.db
-      .prepare(
-        `INSERT INTO jev_calls (command, version, provider, model, questions, answers_json, input_tokens, output_tokens, cost_usd, cost_source, elapsed_ms, attempts, error, item_id, sweep_id, conversation_id, call_id, created_at)
-         VALUES (:command, :version, :provider, :model, :questions, :answers, :input, :output, :cost, :source, :elapsed, :attempts, :error, :item, :sweep, :conv, :call, :now)`,
-      )
-      .run(
-        bind({
-          command: input.command,
-          version: input.version,
-          provider: input.provider,
-          model: input.model,
-          questions: input.questions,
-          answers: input.answers,
-          input: input.inputTokens,
-          output: input.outputTokens,
-          cost: input.costUsd,
-          source: input.costSource,
-          elapsed: input.elapsedMs,
-          attempts: input.attempts,
-          error: input.error,
-          item: input.itemId,
-          sweep: input.sweepId,
-          conv: input.conversationId,
-          call: input.callId,
-          now: nowIso(),
-        }),
-      );
+    const r = this.prepare(
+      `INSERT INTO jev_calls (track_id, command, version, provider, model, questions, answers_json, input_tokens, output_tokens, cost_usd, cost_source, elapsed_ms, attempts, error, item_id, sweep_id, conversation_id, call_id, created_at)
+         VALUES (:write_track, :command, :version, :provider, :model, :questions, :answers, :input, :output, :cost, :source, :elapsed, :attempts, :error, :item, :sweep, :conv, :call, :now)`,
+    ).run(
+      bind({
+        write_track: this.trackOf(input.conversationId, undefined, input.sweepId),
+        command: input.command,
+        version: input.version,
+        provider: input.provider,
+        model: input.model,
+        questions: input.questions,
+        answers: input.answers,
+        input: input.inputTokens,
+        output: input.outputTokens,
+        cost: input.costUsd,
+        source: input.costSource,
+        elapsed: input.elapsedMs,
+        attempts: input.attempts,
+        error: input.error,
+        item: input.itemId,
+        sweep: input.sweepId,
+        conv: input.conversationId,
+        call: input.callId,
+        now: nowIso(),
+      }),
+    );
     return Number(r.lastInsertRowid);
   }
 
   firecrawl(input: FirecrawlCallInput): number {
-    const r = this.db
-      .prepare(
-        `INSERT INTO firecrawl_calls (endpoint, query, url, status, results, credits_used, credits_source, elapsed_ms, error, sweep_id, conversation_id, call_id, created_at)
-         VALUES (:endpoint, :query, :url, :status, :results, :credits, :source, :elapsed, :error, :sweep, :conv, :call, :now)`,
-      )
-      .run(
-        bind({
-          endpoint: input.endpoint,
-          query: input.query,
-          url: input.url,
-          status: input.status,
-          results: input.results,
-          credits: input.creditsUsed,
-          source: input.creditsSource,
-          elapsed: input.elapsedMs,
-          error: input.error,
-          sweep: input.sweepId,
-          conv: input.conversationId,
-          call: input.callId,
-          now: nowIso(),
-        }),
-      );
+    const r = this.prepare(
+      `INSERT INTO firecrawl_calls (track_id, endpoint, query, url, status, results, credits_used, credits_source, elapsed_ms, error, sweep_id, conversation_id, call_id, created_at)
+         VALUES (:write_track, :endpoint, :query, :url, :status, :results, :credits, :source, :elapsed, :error, :sweep, :conv, :call, :now)`,
+    ).run(
+      bind({
+        write_track: this.trackOf(input.conversationId, undefined, input.sweepId),
+        endpoint: input.endpoint,
+        query: input.query,
+        url: input.url,
+        status: input.status,
+        results: input.results,
+        credits: input.creditsUsed,
+        source: input.creditsSource,
+        elapsed: input.elapsedMs,
+        error: input.error,
+        sweep: input.sweepId,
+        conv: input.conversationId,
+        call: input.callId,
+        now: nowIso(),
+      }),
+    );
     return Number(r.lastInsertRowid);
   }
 
   /** Credits used since local midnight (UTC day) and in one sweep. */
   /** Context size the conversation's latest generation sent. */
   contextTokens(conversationId: number): number {
-    const r = this.db
-      .prepare(
-        "SELECT context_tokens FROM generations WHERE conversation_id = ? ORDER BY entry_id DESC LIMIT 1",
-      )
-      .get(conversationId) as { context_tokens?: number } | undefined;
+    const r = this.prepare(
+      "SELECT context_tokens FROM generations WHERE (:track IS NULL OR track_id = :track) AND conversation_id = ? ORDER BY entry_id DESC LIMIT 1",
+    ).get(conversationId) as { context_tokens?: number } | undefined;
     return r?.context_tokens ?? 0;
   }
 
   /** When any agent last generated (epoch ms). */
   lastActivityAt(): number | undefined {
-    const r = this.db
-      .prepare("SELECT max(coalesce(ended_at, started_at)) at FROM generations")
-      .get() as { at?: number | null } | undefined;
+    const r = this.prepare(
+      "SELECT max(coalesce(ended_at, started_at)) at FROM generations WHERE (:track IS NULL OR track_id = :track)",
+    ).get() as { at?: number | null } | undefined;
     return r?.at ?? undefined;
   }
 
@@ -546,11 +582,9 @@ export class TelemetryRepo implements TelemetryStore {
     const day = now.toISOString().slice(0, 10);
     return Number(
       (
-        this.db
-          .prepare(
-            "SELECT COALESCE(SUM(credits_used), 0) n FROM firecrawl_calls WHERE created_at >= ?",
-          )
-          .get(`${day}T00:00:00.000Z`) as any
+        this.prepare(
+          "SELECT COALESCE(SUM(credits_used), 0) n FROM firecrawl_calls WHERE (:track IS NULL OR track_id = :track) AND created_at >= ?",
+        ).get(`${day}T00:00:00.000Z`) as any
       ).n,
     );
   }
@@ -561,31 +595,25 @@ export class TelemetryRepo implements TelemetryStore {
    * ended_at alone is not enough either: the projector stamps it after every generation.
    */
   submissionRun(submissionId: number): { status: string } | undefined {
-    return this.db
-      .prepare(
-        "SELECT status FROM agent_runs WHERE submission_id = ? ORDER BY run_entry_id DESC LIMIT 1",
-      )
-      .get(submissionId) as { status: string } | undefined;
+    return this.prepare(
+      "SELECT status FROM agent_runs WHERE (:track IS NULL OR track_id = :track) AND submission_id = ? ORDER BY run_entry_id DESC LIMIT 1",
+    ).get(submissionId) as { status: string } | undefined;
   }
 
   /** A conversation's newest run, with when it ended. */
   lastRun(conversationId: number): { status: string; endedAt?: number } | undefined {
-    const r = this.db
-      .prepare(
-        "SELECT status, ended_at FROM agent_runs WHERE conversation_id = ? ORDER BY run_entry_id DESC LIMIT 1",
-      )
-      .get(conversationId) as { status: string; ended_at: number | null } | undefined;
+    const r = this.prepare(
+      "SELECT status, ended_at FROM agent_runs WHERE (:track IS NULL OR track_id = :track) AND conversation_id = ? ORDER BY run_entry_id DESC LIMIT 1",
+    ).get(conversationId) as { status: string; ended_at: number | null } | undefined;
     return r && { status: r.status, endedAt: r.ended_at ?? undefined };
   }
 
   creditsForSweep(sweepId: number): number {
     return Number(
       (
-        this.db
-          .prepare(
-            "SELECT COALESCE(SUM(credits_used), 0) n FROM firecrawl_calls WHERE sweep_id = ?",
-          )
-          .get(sweepId) as any
+        this.prepare(
+          "SELECT COALESCE(SUM(credits_used), 0) n FROM firecrawl_calls WHERE (:track IS NULL OR track_id = :track) AND sweep_id = ?",
+        ).get(sweepId) as any
       ).n,
     );
   }
@@ -593,15 +621,13 @@ export class TelemetryRepo implements TelemetryStore {
   // Executions
 
   private runSummary(r: any): RunSummary {
-    const agg = this.db
-      .prepare(
-        "SELECT COUNT(*) gens, COALESCE(SUM(input_tokens + cache_read_tokens + cache_write_tokens), 0) tin, COALESCE(SUM(output_tokens), 0) tout, COALESCE(SUM(cost_usd), 0) cost FROM generations WHERE run_entry_id = ?",
-      )
-      .get(r.run_entry_id) as any;
+    const agg = this.prepare(
+      "SELECT COUNT(*) gens, COALESCE(SUM(input_tokens + cache_read_tokens + cache_write_tokens), 0) tin, COALESCE(SUM(output_tokens), 0) tout, COALESCE(SUM(cost_usd), 0) cost FROM generations WHERE (:track IS NULL OR track_id = :track) AND run_entry_id = ?",
+    ).get(r.run_entry_id) as any;
     const tools = (
-      this.db
-        .prepare("SELECT COUNT(*) n FROM tool_calls WHERE run_entry_id = ?")
-        .get(r.run_entry_id) as any
+      this.prepare(
+        "SELECT COUNT(*) n FROM tool_calls WHERE (:track IS NULL OR track_id = :track) AND run_entry_id = ?",
+      ).get(r.run_entry_id) as any
     ).n;
     return {
       runEntryId: r.run_entry_id,
@@ -630,70 +656,60 @@ export class TelemetryRepo implements TelemetryStore {
       topLevel?: boolean;
     } = {},
   ): RunSummary[] {
-    const where: string[] = [];
+    const where: string[] = ["(:track IS NULL OR r.track_id = :track)"];
     if (filter.sweepId) where.push("r.sweep_id = :sweep");
     if (filter.conversationId) where.push("r.conversation_id = :conv");
     if (filter.before) where.push("r.run_entry_id < :before");
     if (filter.topLevel) where.push("c.owner_task_id IS NULL");
     return (
-      this.db
-        .prepare(
-          `SELECT r.*, c.agent FROM agent_runs r LEFT JOIN agent_conversations c ON c.conversation_id = r.conversation_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY r.run_entry_id DESC LIMIT :limit`,
-        )
-        .all(
-          bind({
-            sweep: filter.sweepId,
-            conv: filter.conversationId,
-            before: filter.before,
-            limit: filter.limit ?? 50,
-          }),
-        ) as any[]
+      this.prepare(
+        `SELECT r.*, c.agent FROM agent_runs r LEFT JOIN agent_conversations c ON c.conversation_id = r.conversation_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY r.run_entry_id DESC LIMIT :limit`,
+      ).all(
+        bind({
+          sweep: filter.sweepId,
+          conv: filter.conversationId,
+          before: filter.before,
+          limit: filter.limit ?? 50,
+        }),
+      ) as any[]
     ).map((r) => this.runSummary(r));
   }
 
   private toolCallsWhere(where: string, params: Record<string, unknown>): ToolCallRow[] {
     const rows = (
-      this.db
-        .prepare(
-          `SELECT t.*, g.context_tokens FROM tool_calls t LEFT JOIN generations g ON g.entry_id = t.generation_entry_id WHERE ${where} ORDER BY t.id`,
-        )
-        .all(bind(params)) as any[]
+      this.prepare(
+        `SELECT t.*, g.context_tokens FROM tool_calls t LEFT JOIN generations g ON g.entry_id = t.generation_entry_id WHERE (:track IS NULL OR t.track_id = :track) AND (${where}) ORDER BY t.id`,
+      ).all(bind(params)) as any[]
     ).map(toToolCall);
     for (const row of rows) {
       if (row.taskId === undefined) continue;
       row.children = (
-        this.db
-          .prepare(
-            "SELECT conversation_id FROM agent_conversations WHERE owner_task_id = ? ORDER BY conversation_id",
-          )
-          .all(row.taskId) as any[]
+        this.prepare(
+          "SELECT conversation_id FROM agent_conversations WHERE (:track IS NULL OR track_id = :track) AND owner_task_id = ? ORDER BY conversation_id",
+        ).all(row.taskId) as any[]
       ).map((c) => c.conversation_id);
       // deep_dive_research's subagents belong to its background task; the call names them in its details.
       const named = (row.details as { children?: unknown } | undefined)?.children;
       if (!row.children.length && Array.isArray(named))
         row.children = named.filter((id): id is number => typeof id === "number");
-      const paid = this.db
-        .prepare(
-          "SELECT (SELECT COALESCE(SUM(cost_usd), 0) FROM jev_calls WHERE call_id = :call) + (SELECT COALESCE(SUM(im.cost_usd), 0) FROM images im JOIN cards c ON c.image_id = im.id WHERE c.tool_call_id = :call AND im.origin = 'generated') usd",
-        )
-        .get({ call: String(row.taskId) }) as { usd: number };
+      const paid = this.prepare(
+        "SELECT (SELECT COALESCE(SUM(cost_usd), 0) FROM jev_calls WHERE (:track IS NULL OR track_id = :track) AND call_id = :call) + (SELECT COALESCE(SUM(im.cost_usd), 0) FROM images im JOIN cards c ON c.image_id = im.id WHERE c.tool_call_id = :call AND im.origin = 'generated') usd",
+      ).get({ call: String(row.taskId) }) as { usd: number };
       row.paidUsd = paid.usd;
     }
     return rows;
   }
 
   run(runEntryId: number, depth = 0): RunDetail | undefined {
-    const r = this.db
-      .prepare(
-        "SELECT r.*, c.agent FROM agent_runs r LEFT JOIN agent_conversations c ON c.conversation_id = r.conversation_id WHERE r.run_entry_id = ?",
-      )
-      .get(runEntryId) as any;
+    const r = this.prepare(
+      "SELECT r.*, c.agent FROM agent_runs r LEFT JOIN agent_conversations c ON c.conversation_id = r.conversation_id WHERE (:track IS NULL OR r.track_id = :track) AND r.run_entry_id = ?",
+    ).get(runEntryId) as any;
     if (!r) return undefined;
     const summary = this.runSummary(r);
     const generationRows = (
-      this.db
-        .prepare("SELECT * FROM generations WHERE run_entry_id = ? ORDER BY entry_id")
-        .all(runEntryId) as any[]
+      this.prepare(
+        "SELECT * FROM generations WHERE (:track IS NULL OR track_id = :track) AND run_entry_id = ? ORDER BY entry_id",
+      ).all(runEntryId) as any[]
     ).map(toGeneration);
     const toolCallRows = this.toolCallsWhere("t.run_entry_id = :run", { run: runEntryId });
     // Paid calls (jev, Firecrawl) record the pi-durable task id of the tool call that made them.
@@ -703,11 +719,9 @@ export class TelemetryRepo implements TelemetryStore {
       depth < 2
         ? childConversations.flatMap((conv) =>
             (
-              this.db
-                .prepare(
-                  "SELECT run_entry_id FROM agent_runs WHERE conversation_id = ? ORDER BY run_entry_id",
-                )
-                .all(conv) as any[]
+              this.prepare(
+                "SELECT run_entry_id FROM agent_runs WHERE (:track IS NULL OR track_id = :track) AND conversation_id = ? ORDER BY run_entry_id",
+              ).all(conv) as any[]
             )
               .map((c) => this.run(c.run_entry_id, depth + 1)!)
               .filter(Boolean),
@@ -716,11 +730,9 @@ export class TelemetryRepo implements TelemetryStore {
     const inCalls = (table: string, map: (r: any) => any) =>
       callIds.length
         ? (
-            this.db
-              .prepare(
-                `SELECT * FROM ${table} WHERE call_id IN (${callIds.map(() => "?").join(",")}) ORDER BY id`,
-              )
-              .all(...callIds) as any[]
+            this.prepare(
+              `SELECT * FROM ${table} WHERE (:track IS NULL OR track_id = :track) AND call_id IN (${callIds.map(() => "?").join(",")}) ORDER BY id`,
+            ).all(...callIds) as any[]
           ).map(map)
         : [];
     return {
@@ -742,9 +754,9 @@ export class TelemetryRepo implements TelemetryStore {
   toolCall(id: number): ToolCallDetail | undefined {
     const [row] = this.toolCallsWhere("t.id = :id", { id });
     if (!row) return undefined;
-    const g = this.db
-      .prepare("SELECT * FROM generations WHERE entry_id = ?")
-      .get(row.generationEntryId);
+    const g = this.prepare(
+      "SELECT * FROM generations WHERE (:track IS NULL OR track_id = :track) AND entry_id = ?",
+    ).get(row.generationEntryId);
     const childRuns = (row.children ?? []).flatMap((conv) =>
       this.runs({ conversationId: conv, limit: 20 }),
     );
@@ -753,12 +765,14 @@ export class TelemetryRepo implements TelemetryStore {
       ...row,
       generation: g ? toGeneration(g) : undefined,
       jevCalls: (
-        this.db.prepare("SELECT * FROM jev_calls WHERE call_id = ? ORDER BY id").all(paid) as any[]
+        this.prepare(
+          "SELECT * FROM jev_calls WHERE (:track IS NULL OR track_id = :track) AND call_id = ? ORDER BY id",
+        ).all(paid) as any[]
       ).map(toJev),
       firecrawlCalls: (
-        this.db
-          .prepare("SELECT * FROM firecrawl_calls WHERE call_id = ? ORDER BY id")
-          .all(paid) as any[]
+        this.prepare(
+          "SELECT * FROM firecrawl_calls WHERE (:track IS NULL OR track_id = :track) AND call_id = ? ORDER BY id",
+        ).all(paid) as any[]
       ).map(toFirecrawl),
       childRuns,
       events: this.events({ callId: row.callId, limit: 100 }),
@@ -767,18 +781,18 @@ export class TelemetryRepo implements TelemetryStore {
 
   /** The tool call a pi-durable tool task ran (cards.tool_call_id holds the task id). */
   toolCallByTask(taskId: number): ToolCallDetail | undefined {
-    const r = this.db.prepare("SELECT id FROM tool_calls WHERE task_id = ?").get(taskId) as
-      | { id: number }
-      | undefined;
+    const r = this.prepare(
+      "SELECT id FROM tool_calls WHERE (:track IS NULL OR track_id = :track) AND task_id = ?",
+    ).get(taskId) as { id: number } | undefined;
     return r ? this.toolCall(r.id) : undefined;
   }
 
   /** The newest `limit` tool calls of a conversation, oldest first. */
   toolCallsForConversation(conversationId: number, limit = 200): ToolCallRow[] {
     const ids = (
-      this.db
-        .prepare("SELECT id FROM tool_calls WHERE conversation_id = ? ORDER BY id DESC LIMIT ?")
-        .all(conversationId, limit) as { id: number }[]
+      this.prepare(
+        "SELECT id FROM tool_calls WHERE (:track IS NULL OR track_id = :track) AND conversation_id = ? ORDER BY id DESC LIMIT ?",
+      ).all(conversationId, limit) as { id: number }[]
     ).map((r) => r.id);
     if (!ids.length) return [];
     return this.toolCallsWhere(`t.id IN (${ids.join(",")})`, {});
@@ -796,22 +810,17 @@ export class TelemetryRepo implements TelemetryStore {
     tokensIn: number;
     tokensOut: number;
   } {
-    const childConvs = "SELECT conversation_id FROM agent_conversations WHERE sweep_id = :sweep";
-    const g = this.db
-      .prepare(
-        `SELECT COALESCE(SUM(cost_usd), 0) cost, COALESCE(SUM(input_tokens + cache_read_tokens + cache_write_tokens), 0) tin, COALESCE(SUM(output_tokens), 0) tout FROM generations WHERE sweep_id = :sweep OR conversation_id IN (${childConvs})`,
-      )
-      .get(bind({ sweep: sweepId })) as any;
-    const j = this.db
-      .prepare(
-        "SELECT COALESCE(SUM(cost_usd), 0) cost, COUNT(*) n FROM jev_calls WHERE sweep_id = ?",
-      )
-      .get(sweepId) as any;
-    const i = this.db
-      .prepare(
-        "SELECT COALESCE(SUM(im.cost_usd), 0) cost FROM images im JOIN cards c ON c.image_id = im.id WHERE c.sweep_id = ? AND im.origin = 'generated'",
-      )
-      .get(sweepId) as any;
+    const childConvs =
+      "SELECT conversation_id FROM agent_conversations WHERE (:track IS NULL OR track_id = :track) AND sweep_id = :sweep";
+    const g = this.prepare(
+      `SELECT COALESCE(SUM(cost_usd), 0) cost, COALESCE(SUM(input_tokens + cache_read_tokens + cache_write_tokens), 0) tin, COALESCE(SUM(output_tokens), 0) tout FROM generations WHERE (:track IS NULL OR track_id = :track) AND (sweep_id = :sweep OR conversation_id IN (${childConvs}))`,
+    ).get(bind({ sweep: sweepId })) as any;
+    const j = this.prepare(
+      "SELECT COALESCE(SUM(cost_usd), 0) cost, COUNT(*) n FROM jev_calls WHERE (:track IS NULL OR track_id = :track) AND sweep_id = ?",
+    ).get(sweepId) as any;
+    const i = this.prepare(
+      "SELECT COALESCE(SUM(im.cost_usd), 0) cost FROM images im JOIN cards c ON c.image_id = im.id WHERE (:track IS NULL OR im.track_id = :track) AND c.sweep_id = ? AND im.origin = 'generated'",
+    ).get(sweepId) as any;
     return {
       modelUsd: g.cost,
       jevUsd: j.cost,
@@ -825,10 +834,16 @@ export class TelemetryRepo implements TelemetryStore {
   /** Everything this device has spent, all time: model generations, jev calls and generated images. */
   spend(): { modelUsd: number; jevUsd: number; imageUsd: number; totalUsd: number } {
     const sum = (sql: string) =>
-      ((this.db.prepare(sql).get() as { c: number | null }).c ?? 0) as number;
-    const modelUsd = sum("SELECT SUM(cost_usd) c FROM generations");
-    const jevUsd = sum("SELECT SUM(cost_usd) c FROM jev_calls");
-    const imageUsd = sum("SELECT SUM(cost_usd) c FROM images WHERE origin = 'generated'");
+      ((this.prepare(sql).get() as { c: number | null }).c ?? 0) as number;
+    const modelUsd = sum(
+      "SELECT SUM(cost_usd) c FROM generations WHERE (:track IS NULL OR track_id = :track)",
+    );
+    const jevUsd = sum(
+      "SELECT SUM(cost_usd) c FROM jev_calls WHERE (:track IS NULL OR track_id = :track)",
+    );
+    const imageUsd = sum(
+      "SELECT SUM(cost_usd) c FROM images WHERE (:track IS NULL OR track_id = :track) AND origin = 'generated'",
+    );
     return { modelUsd, jevUsd, imageUsd, totalUsd: modelUsd + jevUsd + imageUsd };
   }
 
@@ -850,36 +865,26 @@ export class TelemetryRepo implements TelemetryStore {
         });
       return out.get(d)!;
     };
-    for (const r of this.db
-      .prepare(
-        "SELECT date(started_at / 1000, 'unixepoch') d, SUM(cost_usd) c, SUM(input_tokens + cache_read_tokens + cache_write_tokens) i, SUM(output_tokens) o FROM generations GROUP BY d HAVING d >= ?",
-      )
-      .all(since) as any[]) {
+    for (const r of this.prepare(
+      "SELECT date(started_at / 1000, 'unixepoch') d, SUM(cost_usd) c, SUM(input_tokens + cache_read_tokens + cache_write_tokens) i, SUM(output_tokens) o FROM generations WHERE (:track IS NULL OR track_id = :track) GROUP BY d HAVING d >= ?",
+    ).all(since) as any[]) {
       Object.assign(day(r.d), { modelUsd: r.c, tokensIn: r.i, tokensOut: r.o });
     }
-    for (const r of this.db
-      .prepare(
-        "SELECT substr(created_at, 1, 10) d, SUM(cost_usd) c, COUNT(*) n FROM jev_calls GROUP BY d HAVING d >= ?",
-      )
-      .all(since) as any[])
+    for (const r of this.prepare(
+      "SELECT substr(created_at, 1, 10) d, SUM(cost_usd) c, COUNT(*) n FROM jev_calls WHERE (:track IS NULL OR track_id = :track) GROUP BY d HAVING d >= ?",
+    ).all(since) as any[])
       Object.assign(day(r.d), { jevUsd: r.c ?? 0, jevCalls: r.n });
-    for (const r of this.db
-      .prepare(
-        "SELECT substr(created_at, 1, 10) d, SUM(credits_used) c FROM firecrawl_calls GROUP BY d HAVING d >= ?",
-      )
-      .all(since) as any[])
+    for (const r of this.prepare(
+      "SELECT substr(created_at, 1, 10) d, SUM(credits_used) c FROM firecrawl_calls WHERE (:track IS NULL OR track_id = :track) GROUP BY d HAVING d >= ?",
+    ).all(since) as any[])
       day(r.d).firecrawlCredits = r.c ?? 0;
-    for (const r of this.db
-      .prepare(
-        "SELECT substr(created_at, 1, 10) d, SUM(cost_usd) c FROM images WHERE origin = 'generated' GROUP BY d HAVING d >= ?",
-      )
-      .all(since) as any[])
+    for (const r of this.prepare(
+      "SELECT substr(created_at, 1, 10) d, SUM(cost_usd) c FROM images WHERE (:track IS NULL OR track_id = :track) AND origin = 'generated' GROUP BY d HAVING d >= ?",
+    ).all(since) as any[])
       day(r.d).imageUsd = r.c ?? 0;
-    for (const r of this.db
-      .prepare(
-        "SELECT substr(created_at, 1, 10) d, COUNT(*) n FROM sweeps WHERE status != 'skipped' GROUP BY d HAVING d >= ?",
-      )
-      .all(since) as any[])
+    for (const r of this.prepare(
+      "SELECT substr(created_at, 1, 10) d, COUNT(*) n FROM sweeps WHERE (:track IS NULL OR track_id = :track) AND status != 'skipped' GROUP BY d HAVING d >= ?",
+    ).all(since) as any[])
       day(r.d).sweeps = r.n;
     return [...out.values()].sort((a, b) => a.day.localeCompare(b.day));
   }

@@ -161,7 +161,7 @@ try {
   await page.waitForFunction(() => document.querySelectorAll(".card").length >= 3);
   await page.locator('[data-role="agent"]').first().waitFor();
   check(
-    (await page.getByTestId("active-track").innerText()) === "AI desk",
+    (await page.getByTestId("active-track").inputValue()) === "ai",
     "the active AI desk is identified",
   );
   check(
@@ -792,6 +792,88 @@ try {
   await page.screenshot({ path: join(shots, "settings.png") });
   await cleanText("settings");
   await page.getByRole("button", { name: "Close settings" }).click();
+
+  // ---------------------------------------------------------------- dedicated Cyber Security desk
+  await page.getByLabel("Message the agent").fill("AI draft stays with AI");
+  const aiBeforeSwitch = await call("GET", "/v1/feed");
+  await page.getByLabel("News track").selectOption("cyber-security");
+  await page.waitForURL((url) => url.searchParams.get("track") === "cyber-security");
+  await page.waitForFunction(
+    () => document.querySelector('[aria-label="Sweep schedule"]')?.value === "30",
+  );
+  check(
+    (await page.getByLabel("Cards per sweep").inputValue()) === "5",
+    "Cyber Security starts at 30 minutes and five cards per sweep",
+  );
+  check(
+    (await page.locator(".feed-list .card").count()) === 0 &&
+      (await page.getByLabel("Message the agent").inputValue()) === "",
+    "switching desks starts with the Security feed and draft, without AI content",
+  );
+  const cyberRun = await call(
+    "POST",
+    "/v1/workflows/news-sweep?track=cyber-security",
+    { requestId: "ui:cyber", trigger: "test" },
+    tokens.cron,
+  );
+  for (let i = 0; i < 300; i++) {
+    const run = await call("GET", `/v1/sweeps/${cyberRun.sweep.id}?track=cyber-security`);
+    if (["completed", "failed", "stalled"].includes(run.status)) {
+      check(run.status === "completed", "the Security agent completes its own sweep");
+      break;
+    }
+    await sleep(100);
+  }
+  await page.waitForFunction(() => document.querySelectorAll(".feed-list .card").length === 3);
+  check(
+    (await page.locator(".feed-list").innerText()).includes("Cryptography research"),
+    "broad security research is presented in the Security feed",
+  );
+  check(
+    !(await page.locator(".feed-list").innerText()).includes("pi-durable 1.1.0"),
+    "AI cards do not leak into Security while streaming",
+  );
+  await page.getByLabel("Sweep schedule").selectOption("15");
+  await page.waitForFunction(
+    () => document.querySelector('[aria-label="Sweep schedule"]')?.value === "15",
+  );
+  check(
+    (await call("GET", "/v1/schedule")).everyMinutes === 5,
+    "changing the Security schedule leaves AI's cadence intact",
+  );
+  await page.getByLabel("Message the agent").fill("Security draft stays with Security");
+  await page.screenshot({ path: join(shots, "cyber-security.png") });
+  await page.getByRole("button", { name: "Toggle the agent column" }).click();
+  await page.getByLabel("News track").selectOption("ai");
+  await page.waitForURL((url) => url.searchParams.get("track") === "ai");
+  await page.getByLabel("Message the agent").waitFor();
+  check(
+    (await page.getByLabel("Message the agent").inputValue()) === "AI draft stays with AI",
+    "returning to AI restores its own draft and layout",
+  );
+  check(
+    JSON.stringify(await call("GET", "/v1/feed")) === JSON.stringify(aiBeforeSwitch),
+    "the AI feed remains intact after a Security sweep",
+  );
+  await page.getByLabel("News track").selectOption("cyber-security");
+  await page.waitForURL((url) => url.searchParams.get("track") === "cyber-security");
+  await page.waitForFunction(
+    () => document.querySelector('[aria-label="Sweep schedule"]')?.value === "15",
+  );
+  check(
+    (await page.locator('[data-col="agent"]').count()) === 0,
+    "Security restores its separate collapsed-column preference",
+  );
+  await page.getByRole("button", { name: "Toggle the agent column" }).click();
+  check(
+    (await page.getByLabel("Message the agent").inputValue()) ===
+      "Security draft stays with Security",
+    "Security retains its draft across track switches",
+  );
+  await page.getByLabel("News track").selectOption("ai");
+  await page.waitForURL((url) => url.searchParams.get("track") === "ai");
+  await page.getByLabel("Message the agent").waitFor();
+  await page.getByLabel("Message the agent").fill("");
 
   // ---------------------------------------------------------------- layout
   await collectCaps();

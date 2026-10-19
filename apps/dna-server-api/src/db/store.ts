@@ -23,6 +23,7 @@ export interface Store {
   taste: TasteRepo;
   sweeps: SweepsRepo;
   telemetry: TelemetryRepo;
+  globalTelemetry: TelemetryRepo;
   close(): void;
 }
 
@@ -40,7 +41,8 @@ export function openStore(dataDir: string, configDir: string): Store {
     news: new NewsRepo(db, DEFAULT_TRACK_ID),
     taste: new TasteRepo(db, DEFAULT_TRACK_ID),
     sweeps: new SweepsRepo(db, DEFAULT_TRACK_ID),
-    telemetry: new TelemetryRepo(db),
+    telemetry: new TelemetryRepo(db, undefined, DEFAULT_TRACK_ID),
+    globalTelemetry: new TelemetryRepo(db),
     close() {
       try {
         db.close();
@@ -49,6 +51,31 @@ export function openStore(dataDir: string, configDir: string): Store {
       }
     },
   };
+  seedStore(store, configDir);
+  return store;
+}
+
+export function scopeStore(owner: Store, trackId: string, configDir: string): Store {
+  if (!owner.tracks.get(trackId)) throw new Error(`Unknown track ${trackId}`);
+  const db = owner.db;
+  const store: Store = {
+    ...owner,
+    trackId,
+    settings: new SettingsRepo(db, trackId),
+    sources: new SourcesRepo(db, trackId),
+    news: new NewsRepo(db, trackId),
+    taste: new TasteRepo(db, trackId),
+    sweeps: new SweepsRepo(db, trackId),
+    telemetry: new TelemetryRepo(db, undefined, trackId),
+    close() {
+      throw new Error("Only the owning store may close the shared database");
+    },
+  };
+  seedStore(store, configDir);
+  return store;
+}
+
+function seedStore(store: Store, configDir: string): void {
   store.news.refreshReleases(true);
   const sources = (
     JSON.parse(readFileSync(join(configDir, "sources.json"), "utf8")) as { sources: SourceSeed[] }
@@ -73,5 +100,4 @@ export function openStore(dataDir: string, configDir: string): Store {
     if (added.length) store.sources.seed(added);
     store.settings.set("seededSources", [...seeded, ...added.map(key)]);
   }
-  return store;
 }

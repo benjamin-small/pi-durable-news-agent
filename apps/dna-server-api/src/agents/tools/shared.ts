@@ -12,7 +12,10 @@ export const ref = (api: ToolExecutionApi, sweepId?: number): CallRef => ({
 });
 
 export function activeSweepId(deps: Deps, given?: number): number | undefined {
-  if (given) return given;
+  if (given !== undefined) {
+    if (!deps.store.sweeps.get(given)) throw new FixableError(`No sweep #${given} in this track.`);
+    return given;
+  }
   return deps.store.sweeps.active()[0]?.id;
 }
 

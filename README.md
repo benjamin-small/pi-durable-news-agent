@@ -86,23 +86,27 @@ Three reusable packages in `apps/shared/packages/` carry the weight: `durable-ag
 
 ## Editorial tracks
 
-The existing desk is now the **AI** track (`ai`). Upgrading migrates its sources, keywords, article assessments, cards, stories, feedback, schedules and other settings in place. Existing record IDs and links stay valid. The desk keeps its original durable conversation in `agent.sqlite`, including its transcript, model configuration and unfinished work.
+**AI** (`ai`) and **Cyber Security** (`cyber-security`) are separate news desks. Each has a persistent agent conversation, research subagents, work queue, sources, keywords, feedback, model settings, feed and schedule. Existing AI history, record IDs, settings and its original durable conversation are preserved when upgrading.
 
-`GET /v1/tracks` lists available desks; `/v1/info` includes the active track. Existing URLs and clients still default to AI. A track-aware SDK client uses:
+Cyber Security covers broad industry news and research: incidents, defensive techniques, vulnerability research, identity, cloud security, supply chains, privacy and cryptography. Its editorial policy distinguishes observed exploitation, vendor-confirmed findings, proofs of concept and demonstrations. It preserves uncertainty and does not assume the reader's systems are affected. Its initial feeds are [Schneier on Security](https://www.schneier.com/feed/atom/), [Krebs on Security](https://krebsonsecurity.com/feed/), [Cisco Talos](https://blog.talosintelligence.com/rss/), [Google Security Blog](https://security.googleblog.com/feeds/posts/default), [Microsoft Security Blog](https://www.microsoft.com/en-us/security/blog/feed/) and [GitHub Security](https://github.blog/security/feed/). These publisher endpoints were checked on October 19, 2026. The feed and keyword seeds live in `apps/dna-server-api/config/cyber-security/`.
+
+Choose a desk from the browser's **News track** selector. The URL retains the selection; changing desks reloads the page so old streams, requests and dialogs cannot populate the new desk. Drafts, layout, tabs and pending-message retry IDs are stored separately for each track. Terminal clients support `--track cyber-security`, and `dna tracks` lists the available desks. Existing clients without a track still select AI.
 
 ```ts
-const ai = new DnaClient(apiUrl, token).forTrack("ai");
-await ai.feed();                  // GET /v1/feed?track=ai
-await ai.setSchedule(30);         // PATCH /v1/schedule?track=ai
+const security = new DnaClient(apiUrl, token).forTrack("cyber-security");
+await security.feed();            // GET /v1/feed?track=cyber-security
+await security.setSchedule(30);   // PATCH /v1/schedule?track=cyber-security
 ```
 
-The same `?track=ai` context applies to chat, sources, feedback, workflows and SSE. Track-aware responses identify the desk through `X-DNA-Track`; stream frames and feed records include `trackId`. Unknown or inactive desks are rejected before any work starts. Tokens retain their existing scopes across these requests.
+The same `?track=` context applies to chat, feedback, sources, workflows, executions, usage and SSE. Responses identify their desk through `X-DNA-Track`; stream frames and feed records include `trackId`. Unknown, inactive and cross-track record IDs are rejected. Tokens retain their existing scopes.
 
-Article assessments and editorial repositories belong to a track. Two tracks can assess the same URL independently, while sharing the canonical document in `source_cache`. Source records describe each desk's subscriptions and weights; cached source IDs describe acquisition provenance. Browser tabs, layout and pending-message retry IDs have track-specific storage keys, with existing AI state migrated once.
+Cyber Security starts with a 30-minute schedule and up to five cards per sweep. AI keeps its saved schedule. The existing cron tick visits every desk when `scheduled: true` is sent without `?track=`; `trackResults` reports each outcome. Explicit track requests and manual requests target one desk. Pausing one desk does not pause the other. Each desk has at most one open sweep, stale scheduler ticks do not build a backlog, and both desks can make progress concurrently. The Security conversation has an atomic receipt in `agent.sqlite`, so restarting between conversation creation and the app's metadata write reuses the same agent.
 
-This foundation runs only the AI desk. Creating another active desk, its editorial profile, separate durable agent, scheduling across desks, spending allocations and a track switcher are follow-up work. Telemetry and provider limits remain application-wide. Per-host pacing must also coordinate across all future desks.
+Two desks can assess the same URL independently while sharing its canonical document in `source_cache`. Telemetry and editorial state are scoped to each desk. Collection HTTP, search engine cooldowns, Firecrawl reservations and daily provider credit limits are shared. Both desks use the configured credentials and provider spending cap; adding a desk does not change that cap. Per-host pacing and Retry-After handling remain a separate follow-up.
 
-The database migration is transactional and checks foreign keys before commit. For a deployment upgrade, stop the API and preserve both SQLite files before starting the new version; downgrading the database requires restoring that snapshot.
+Automatic compaction policy is shared by the current pi-durable harness; the advanced controls show its effective points for each model. Transcripts and manual compaction remain separate. Different model windows can change those effective points across desks.
+
+Database migrations are transactional and check foreign keys before committing. For a deployment upgrade, stop the API and preserve both SQLite files before starting the new version; downgrading the database requires restoring that snapshot.
 
 ## How a sweep works
 

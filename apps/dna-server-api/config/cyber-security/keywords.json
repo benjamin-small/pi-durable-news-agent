@@ -1,0 +1,45 @@
+{
+  "topic": [
+    "cyber security research",
+    "software supply chain security",
+    "vulnerability research",
+    "ransomware investigations",
+    "cloud security",
+    "identity and authentication security",
+    "incident response",
+    "malware analysis",
+    "security engineering",
+    "privacy and surveillance",
+    "cryptography research",
+    "threat intelligence"
+  ],
+  "hype": [
+    "unhackable",
+    "military grade",
+    "game changer",
+    "AI powered",
+    "fear uncertainty doubt",
+    "funding round"
+  ],
+  "facts": [
+    "technical analysis",
+    "reproducible",
+    "proof of concept",
+    "vendor advisory",
+    "affected versions",
+    "patch",
+    "research paper",
+    "disclosure timeline",
+    "indicators of compromise"
+  ],
+  "signal": [
+    "actively exploited",
+    "mitigation",
+    "patch available",
+    "defensive detection",
+    "supply chain compromise",
+    "security advisory",
+    "authentication bypass",
+    "lessons learned"
+  ]
+}

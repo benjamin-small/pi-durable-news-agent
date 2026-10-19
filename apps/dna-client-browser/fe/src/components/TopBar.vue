@@ -15,8 +15,11 @@ import {
 import { usd } from "@dna/sdk";
 import { layout, toggle } from "../client/layout";
 import { go } from "../client/route";
-import { agentState, api, attempt, connection, feed, info, now, ui } from "../client/store";
+import { agentState, api, attempt, connection, feed, info, now, tracks, ui } from "../client/store";
 
+import { ACTIVE_TRACK_ID, selectTrack } from "../client/track";
+
+const hasActiveTrack = computed(() => tracks.value.some((track) => track.id === ACTIVE_TRACK_ID));
 const busy = computed(() => agentState.value?.busy ?? false);
 const schedule = computed(() => agentState.value?.schedule);
 const countdown = computed(() => {
@@ -47,9 +50,20 @@ const spend = computed(() => agentState.value?.spend);
       <span class="brand-mark" aria-hidden="true"><Zap :size="17" /></span>
       <div>
         <strong>Durable News Agent</strong>
-        <span class="tagline" data-testid="active-track" :title="info?.track?.description">
-          {{ info?.track?.name ?? "AI" }} desk
-        </span>
+        <select
+          class="track-select"
+          data-testid="active-track"
+          aria-label="News track"
+          :value="ACTIVE_TRACK_ID"
+          @change="selectTrack(($event.target as HTMLSelectElement).value)"
+        >
+          <option v-if="!hasActiveTrack" :value="ACTIVE_TRACK_ID">
+            {{ info?.track?.name ?? ACTIVE_TRACK_ID }} desk
+          </option>
+          <option v-for="track in tracks" :key="track.id" :value="track.id">
+            {{ track.name }} desk
+          </option>
+        </select>
       </div>
     </div>
     <div class="agent-status" data-cap="status" :class="{ working: busy }" aria-live="polite">
