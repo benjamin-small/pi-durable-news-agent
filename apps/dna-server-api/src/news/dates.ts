@@ -6,6 +6,7 @@ import type { Item } from "../db/repos/news.ts";
 import type { Store } from "../db/store.ts";
 import { stripHtml, type Http } from "./http.ts";
 import { dateInHtml, dateInUrl, extractArticle, plausible, type DateSource } from "./extract.ts";
+import { ArchiveError } from "../archive/archive.ts";
 import type { Quick } from "./quick.ts";
 
 export type { DateSource };
@@ -33,7 +34,17 @@ export class Dates {
 
   /** Date one item from its page, store the answer (unknown included, so it is asked once) and return it. */
   async resolve(item: Item): Promise<{ at?: string; source: DateSource }> {
-    return this.save(item, await this.find(item));
+    const { value } = await this.deps.store.archive.capture(
+      {
+        kind: "article",
+        trackId: this.deps.store.trackId,
+        sweepId: item.sweepId,
+        extractor: "publish-date/v1",
+      },
+      this.deps.http,
+      (http) => this.find(item, http),
+    );
+    return this.save(item, value);
   }
 
   private save(item: Item, found: { at?: string; source: DateSource }) {
@@ -46,11 +57,11 @@ export class Dates {
     return found;
   }
 
-  private async find(item: Item): Promise<{ at?: string; source: DateSource }> {
+  private async find(item: Item, http: Http): Promise<{ at?: string; source: DateSource }> {
     const now = Date.now();
     let text = "";
     try {
-      const res = await this.deps.http.get(item.url, {
+      const res = await http.get(item.url, {
         headers: { accept: "text/html,application/xhtml+xml" },
       });
       const found = dateInHtml(res.text, res.url || item.url, now);
@@ -59,6 +70,7 @@ export class Dates {
       const article = extractArticle(res.text, res.url || item.url, 2000);
       text = [article.byline, stripHtml(res.text, 2000), article.text].filter(Boolean).join("\n\n");
     } catch (error) {
+      if (error instanceof ArchiveError) throw error;
       this.deps.log.warn("dates.fetch_failed", { itemId: item.id, error: String(error) });
       const fromUrl = dateInUrl(item.url, now);
       if (fromUrl) return { at: fromUrl, source: "url" };

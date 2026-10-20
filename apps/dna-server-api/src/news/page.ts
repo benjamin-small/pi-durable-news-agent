@@ -8,8 +8,27 @@ import type { Http } from "./http.ts";
 
 export async function pageText(
   deps: { http: Http; store: Store; log?: Logger },
-  item: Pick<Item, "id" | "url" | "title" | "excerpt" | "cacheId">,
+  item: Pick<Item, "id" | "url" | "title" | "excerpt" | "cacheId" | "sweepId">,
   max = 2400,
+): Promise<string | undefined> {
+  const { value } = await deps.store.archive.capture(
+    {
+      kind: "article",
+      trackId: deps.store.trackId,
+      sweepId: item.sweepId,
+      extractor: "readability/v1",
+      config: { storedMaxChars: 12000, returnedMaxChars: max },
+    },
+    deps.http,
+    (http) => pageTextBody({ ...deps, http }, item, max),
+  );
+  return value;
+}
+
+async function pageTextBody(
+  deps: { http: Http; store: Store; log?: Logger },
+  item: Pick<Item, "id" | "url" | "title" | "excerpt" | "cacheId" | "sweepId">,
+  max: number,
 ): Promise<string | undefined> {
   const cached = item.cacheId
     ? deps.store.sources.cachedById(item.cacheId)

@@ -45,7 +45,10 @@ test("SSE frames reduce to the same transcript as /v1/agent/transcript, and feed
   await idle(s.client);
   const transcript = await s.client.transcript();
   await until(
-    () => !agent.state.running && agent.state.items.length === transcript.items!.length,
+    () =>
+      !agent.state.running &&
+      !feed.state.agent?.busy &&
+      agent.state.items.length === transcript.items!.length,
     "the stream to catch up",
   );
   assert.deepEqual(comparable(agent.state.items), comparable(transcript.items!));

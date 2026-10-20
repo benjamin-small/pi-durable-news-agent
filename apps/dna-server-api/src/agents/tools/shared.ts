@@ -5,7 +5,8 @@ import type { Deps } from "../../deps.ts";
 import type { Item } from "../../db/repos/news.ts";
 
 /** Telemetry links jev and Firecrawl calls to the tool call by its pi-durable task id (unique in the session). */
-export const ref = (api: ToolExecutionApi, sweepId?: number): CallRef => ({
+export const ref = (api: ToolExecutionApi, sweepId?: number, trackId?: string): CallRef => ({
+  ...(trackId ? { trackId } : {}),
   conversationId: api.conversationId as number,
   callId: String(api.taskId),
   sweepId,

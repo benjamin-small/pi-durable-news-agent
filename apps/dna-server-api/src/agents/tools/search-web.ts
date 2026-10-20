@@ -27,7 +27,7 @@ export function searchWeb(deps: Deps) {
       if (cached) return toolText(cached);
       const { hits, via, engines, credits } = await deps.search.search(
         args.query,
-        ref(api, sweepId),
+        ref(api, sweepId, deps.store.trackId),
         {
           hours: args.hours,
           limit: 8,
@@ -38,6 +38,7 @@ export function searchWeb(deps: Deps) {
           url: h.url,
           title: h.title,
           excerpt: h.excerpt,
+          captureIds: h.captureIds,
           publishedAt: h.publishedAt,
           imageUrl: h.imageUrl,
           fetchVia: "feed",

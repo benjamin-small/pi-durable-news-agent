@@ -25,7 +25,7 @@ export function scrapeUrl(deps: Deps) {
       try {
         const { doc, via, credits } = await deps.search.scrape(
           url,
-          ref(api, activeSweepId(deps, item?.sweepId)),
+          ref(api, activeSweepId(deps, item?.sweepId), deps.store.trackId),
         );
         if (item && doc.contentMd && (item.excerpt?.length ?? 0) < 200)
           deps.store.news.updateItem(item.id, {
