@@ -38,7 +38,10 @@ const entries = (body: string) =>
 
 export const fetchHnFront: Fetcher = async (_source, ctx) => {
   const res = await ctx.http.get(`${HN_API}/search?tags=front_page&hitsPerPage=50`);
-  const out = entries(res.text);
+  const out = entries(res.text).map((entry) => ({
+    ...entry,
+    captureIds: res.captureId ? [res.captureId] : undefined,
+  }));
   return { ok: true, status: `200 ${out.length} stories`, entries: out };
 };
 
@@ -48,7 +51,13 @@ export const fetchHnSearch: Fetcher = async (_source, ctx) => {
   const out: FeedEntry[] = [];
   for (const query of ctx.queries ?? []) {
     const url = `${HN_API}/search_by_date?query=${encodeURIComponent(query)}&tags=story&numericFilters=${encodeURIComponent(`created_at_i>${since},points>2`)}&hitsPerPage=20`;
-    out.push(...entries((await ctx.http.get(url)).text));
+    const res = await ctx.http.get(url);
+    out.push(
+      ...entries(res.text).map((entry) => ({
+        ...entry,
+        captureIds: res.captureId ? [res.captureId] : undefined,
+      })),
+    );
   }
   return {
     ok: true,

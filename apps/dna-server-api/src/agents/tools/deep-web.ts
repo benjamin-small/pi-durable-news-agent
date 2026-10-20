@@ -31,10 +31,14 @@ export function deepSearch(deps: Deps) {
     execute: async (args, api, ctx) => {
       const cached = await api.memo<string>("search-result", ctx);
       if (cached) return toolText(cached);
-      const { hits, via, engines, credits } = await deps.search.deepSearch(args.query, ref(api), {
-        hours: args.hours,
-        limit: args.limit ?? 10,
-      });
+      const { hits, via, engines, credits } = await deps.search.deepSearch(
+        args.query,
+        ref(api, undefined, deps.store.trackId),
+        {
+          hours: args.hours,
+          limit: args.limit ?? 10,
+        },
+      );
       const text = [
         `${hits.length} results via ${via}${engines ? ` (${engines})` : ""}${credits ? `, ${credits} credits` : ""}.`,
         ...hits.map((h, i) =>
@@ -79,7 +83,7 @@ export function openPage(deps: Deps) {
       let fetched = "saved copy";
       if (!text) {
         try {
-          const page = await deps.search.deepScrape(url, ref(api));
+          const page = await deps.search.deepScrape(url, ref(api, undefined, deps.store.trackId));
           if (!page.markdown.trim() && !page.links.length)
             return toolError(`${url} has no readable text.`, [
               "Try another result, or search for the same page elsewhere.",

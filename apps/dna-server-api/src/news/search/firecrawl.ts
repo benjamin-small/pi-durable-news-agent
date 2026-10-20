@@ -5,6 +5,7 @@ import type { Http } from "../http.ts";
 export const FIRECRAWL_API = "https://api.firecrawl.dev";
 
 export interface FirecrawlHit {
+  captureIds?: number[];
   url: string;
   title: string;
   description?: string;
@@ -90,7 +91,10 @@ export class FirecrawlClient {
     ].filter((h) => h.url && h.title);
     const reported = typeof body.creditsUsed === "number";
     return {
-      hits,
+      hits: hits.map((hit) => ({
+        ...hit,
+        captureIds: res.captureId ? [res.captureId] : undefined,
+      })),
       credits: reported ? body.creditsUsed : Math.max(1, Math.ceil(hits.length / 10)) * 2,
       creditsSource: reported ? "reported" : "estimated",
     };

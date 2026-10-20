@@ -185,6 +185,7 @@ export function createSweepTask(deps: Deps) {
           const due = bag === 2 ? [] : store.sources.due();
           const fetched = await runParallel(due, 4, (source) =>
             fetchSource(source, {
+              sweepId,
               http: deps.http,
               store,
               log,
@@ -202,7 +203,11 @@ export function createSweepTask(deps: Deps) {
           );
           // Every topic in the bag, the last week newest first, four searches at a time.
           const searches = await runParallel(queries, 4, (query) =>
-            search.search(query, { sweepId }, { hours: SEARCH_DAYS * 24, limit: 25 }),
+            search.search(
+              query,
+              { sweepId, trackId: store.trackId },
+              { hours: SEARCH_DAYS * 24, limit: 25 },
+            ),
           );
           const searched = searches.length;
           for (const { hits } of searches) {
@@ -211,6 +216,7 @@ export function createSweepTask(deps: Deps) {
                 url: h.url,
                 title: h.title,
                 excerpt: h.excerpt,
+                captureIds: h.captureIds,
                 publishedAt: h.publishedAt,
                 imageUrl: h.imageUrl,
                 fetchVia: "feed",

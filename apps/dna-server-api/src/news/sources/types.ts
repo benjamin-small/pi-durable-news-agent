@@ -3,6 +3,7 @@ import type { Logger } from "@dna/sdk/node";
 import type { Http } from "../http.ts";
 
 export interface FeedEntry {
+  captureIds?: number[];
   url: string;
   title: string;
   excerpt?: string;

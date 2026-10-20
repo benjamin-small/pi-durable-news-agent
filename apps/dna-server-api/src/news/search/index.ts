@@ -18,11 +18,13 @@ import {
   type Engine,
 } from "./web.ts";
 import { FirecrawlClient } from "./firecrawl.ts";
+import type { CaptureContext } from "../../archive/archive.ts";
 
 /** web: free search and direct URLs (the default). firecrawl: opt in with DNA_SEARCH_MODE=firecrawl. */
 export type SearchMode = "firecrawl" | "web" | "fixture";
 
 export interface CallRef {
+  trackId?: string;
   sweepId?: number;
   conversationId?: number;
   callId?: string;
@@ -37,6 +39,7 @@ export interface SearchResult {
 }
 
 export interface SearchHit {
+  captureIds?: number[];
   url: string;
   title: string;
   excerpt?: string;
@@ -106,6 +109,8 @@ export class SearchService {
     private readonly deps: { http: Http; store: Store; log?: Logger },
     private readonly options: SearchOptions,
   ) {
+    this.deps = { ...deps, http: deps.store.archive.transport(deps.http) };
+    deps = this.deps;
     this.mode = resolveMode(options.mode, options.firecrawlKey);
     const warning = modeWarning(options.mode, options.firecrawlKey);
     if (warning) deps.log?.warn("search.mode", { warning, mode: this.mode });
@@ -184,7 +189,111 @@ export class SearchService {
     };
   }
 
+  private context(kind: CaptureContext["kind"], call: CallRef): CaptureContext {
+    const db = this.deps.store.db;
+    const track =
+      call.sweepId !== undefined
+        ? db.prepare("SELECT track_id FROM sweeps WHERE id=?").get(call.sweepId)
+        : call.conversationId !== undefined
+          ? db
+              .prepare(
+                "SELECT track_id FROM agent_conversations WHERE conversation_id=? UNION SELECT id track_id FROM tracks WHERE conversation_id=? LIMIT 1",
+              )
+              .get(call.conversationId, call.conversationId)
+          : undefined;
+    return {
+      kind,
+      trackId:
+        call.trackId ??
+        (track as { track_id: string } | undefined)?.track_id ??
+        (call.sweepId === undefined && call.conversationId === undefined
+          ? this.deps.store.trackId
+          : undefined),
+      sweepId: call.sweepId,
+      conversationId: call.conversationId,
+      extractor: kind === "article" ? "readability-or-firecrawl/v1" : "search-results/v1",
+      config:
+        kind === "article"
+          ? { directCacheMaxChars: 12000, providerCacheMaxChars: 40000, fullReadMaxChars: 200000 }
+          : {},
+    };
+  }
+
   async search(
+    query: string,
+    call: CallRef = {},
+    options: { limit?: number; hours?: number } = {},
+  ): Promise<SearchResult> {
+    const { value } = await this.deps.store.archive.capture(
+      this.context("search", call),
+      this.deps.http,
+      () => this.searchBody(query, call, options),
+    );
+    return value;
+  }
+
+  async deepSearch(
+    query: string,
+    call: CallRef = {},
+    options: { limit?: number; hours?: number } = {},
+  ): Promise<SearchResult> {
+    const { value } = await this.deps.store.archive.capture(
+      this.context("search", call),
+      this.deps.http,
+      () => this.deepSearchBody(query, call, options),
+    );
+    return value;
+  }
+
+  async deepScrape(url: string, call: CallRef = {}) {
+    return (
+      await this.deps.store.archive.capture(
+        this.context("article", call),
+        this.deps.http,
+        async () => {
+          const value = await this.deepScrapeBody(url, call);
+          this.deps.store.archive.extraction({
+            url,
+            title: value.title,
+            contentMd: value.markdown,
+            fetchVia: value.via,
+            fullRead: true,
+          });
+          return value;
+        },
+      )
+    ).value;
+  }
+
+  async scrape(url: string, call: CallRef = {}) {
+    return (
+      await this.deps.store.archive.capture(this.context("article", call), this.deps.http, () =>
+        this.scrapeBody(url, call),
+      )
+    ).value;
+  }
+
+  async hyperFetch(url: string, call: CallRef = {}) {
+    return (
+      await this.deps.store.archive.capture(
+        this.context("article", call),
+        this.deps.http,
+        async () => {
+          const value = await this.hyperFetchBody(url, call);
+          this.deps.store.archive.extraction({
+            url,
+            title: value.doc.title,
+            contentMd: value.markdown,
+            fetchVia: value.via,
+            fullRead: true,
+          });
+          return value;
+        },
+      )
+    ).value;
+  }
+
+  private async searchBody(
     query: string,
     call: CallRef = {},
     /** hours keeps results published in that window; leave it out to search any date. */
@@ -212,7 +321,7 @@ export class SearchService {
    * outside the sweep and daily caps like hyper_fetch; otherwise, or when Firecrawl fails, the web chain (Bing web,
    * then DuckDuckGo) plus the free news search. Best match first.
    */
-  async deepSearch(
+  private async deepSearchBody(
     query: string,
     call: CallRef = {},
     options: { limit?: number; hours?: number } = {},
@@ -241,7 +350,7 @@ export class SearchService {
    * Deep research read: one page in full with the links on it. Firecrawl when FIRECRAWL_API_KEY is set (outside the
    * caps), otherwise, or when Firecrawl fails, a direct fetch with Readability. Never cut to the cache's 40k.
    */
-  async deepScrape(
+  private async deepScrapeBody(
     url: string,
     call: CallRef = {},
   ): Promise<{
@@ -283,7 +392,7 @@ export class SearchService {
   }
 
   /** Cache first; a fresh scraped body over 200 chars is never fetched again. */
-  async scrape(
+  private async scrapeBody(
     url: string,
     call: CallRef = {},
   ): Promise<{ doc: CachedDoc; via: "cache" | "firecrawl" | "http"; credits: number }> {
@@ -328,7 +437,7 @@ export class SearchService {
    * hyper_fetch: a fresh full-page read the reader asked for. Firecrawl when FIRECRAWL_API_KEY is set (outside the
    * sweep and daily caps); without a key, or when Firecrawl fails, a direct fetch with Readability. Full markdown.
    */
-  async hyperFetch(
+  private async hyperFetchBody(
     url: string,
     call: CallRef = {},
   ): Promise<{ doc: CachedDoc; markdown: string; via: "firecrawl" | "http"; credits: number }> {
@@ -390,6 +499,7 @@ export class SearchService {
       });
       return {
         hits: result.hits.map((h) => ({
+          captureIds: h.captureIds,
           url: h.url,
           title: h.title,
           excerpt: h.description,

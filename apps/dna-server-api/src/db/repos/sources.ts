@@ -2,7 +2,8 @@
 import { createHash } from "node:crypto";
 import type { Source, SourceKind, SourceLead, SourceOrigin } from "@dna/sdk";
 import { TrackRepo } from "../track-repo.ts";
-import { bind, bool, nowIso, num, str } from "../db.ts";
+import { bind, bool, nowIso, num, str, type Db } from "../db.ts";
+import type { Archive } from "../../archive/archive.ts";
 
 export const urlHash = (url: string) =>
   createHash("sha256").update(canonicalUrl(url)).digest("hex").slice(0, 32);
@@ -48,10 +49,12 @@ export interface CachedDoc {
   fetchVia: string;
   fetchedAt: string;
   expiresAt: string;
+  archiveExtractionId?: number;
 }
 
 export type CachedInput = Omit<CachedDoc, "id" | "urlHash" | "fetchedAt" | "expiresAt"> & {
   ttlMinutes: number;
+  captureIds?: number[];
 };
 
 const toSource = (r: any): Source => ({
@@ -101,9 +104,17 @@ const toCached = (r: any): CachedDoc => ({
   fetchVia: r.fetch_via,
   fetchedAt: r.fetched_at,
   expiresAt: r.expires_at,
+  archiveExtractionId: num(r.archive_extraction_id),
 });
 
 export class SourcesRepo extends TrackRepo {
+  constructor(
+    db: Db,
+    trackId = "ai",
+    private readonly archive?: Archive,
+  ) {
+    super(db, trackId);
+  }
   seed(seeds: SourceSeed[]): number {
     const insert = this.prepare(
       "INSERT OR IGNORE INTO sources (track_id, kind, name, url, query, weight, interval_min, origin, created_at) VALUES (:track, :kind, :name, :url, :query, :weight, :interval_min, 'config', :created_at)",
@@ -380,12 +391,13 @@ export class SourcesRepo extends TrackRepo {
 
   /** Upsert by URL hash. Keeps richer content: a feed entry never overwrites a scraped article body. */
   cache(input: CachedInput, now = new Date()): CachedDoc {
+    const extraction = this.preserveExtraction(input);
     const hash = urlHash(input.url);
     const fetchedAt = now.toISOString();
     const expiresAt = new Date(now.getTime() + input.ttlMinutes * 60_000).toISOString();
     this.prepare(
-      `INSERT INTO source_cache (source_id, url, url_hash, title, author, published_at, excerpt, content_md, image_url, discussion_url, points, comments, fetch_via, fetched_at, expires_at, bytes)
-         VALUES (:source_id, :url, :url_hash, :title, :author, :published_at, :excerpt, :content_md, :image_url, :discussion_url, :points, :comments, :fetch_via, :fetched_at, :expires_at, :bytes)
+      `INSERT INTO source_cache (source_id, url, url_hash, title, author, published_at, excerpt, content_md, image_url, discussion_url, points, comments, fetch_via, fetched_at, expires_at, bytes, archive_extraction_id)
+         VALUES (:source_id, :url, :url_hash, :title, :author, :published_at, :excerpt, :content_md, :image_url, :discussion_url, :points, :comments, :fetch_via, :fetched_at, :expires_at, :bytes, :extraction)
          ON CONFLICT (url_hash) DO UPDATE SET
            source_id = COALESCE(source_cache.source_id, excluded.source_id),
            title = COALESCE(excluded.title, source_cache.title),
@@ -399,7 +411,8 @@ export class SourcesRepo extends TrackRepo {
            comments = COALESCE(excluded.comments, source_cache.comments),
            fetch_via = CASE WHEN length(COALESCE(excluded.content_md, '')) >= length(COALESCE(source_cache.content_md, '')) THEN excluded.fetch_via ELSE source_cache.fetch_via END,
            fetched_at = excluded.fetched_at,
-           expires_at = excluded.expires_at`,
+           expires_at = excluded.expires_at,
+           archive_extraction_id = CASE WHEN length(COALESCE(excluded.content_md, '')) >= length(COALESCE(source_cache.content_md, '')) THEN excluded.archive_extraction_id ELSE source_cache.archive_extraction_id END`,
     ).run(
       bind({
         source_id: input.sourceId,
@@ -418,9 +431,26 @@ export class SourcesRepo extends TrackRepo {
         fetched_at: fetchedAt,
         expires_at: expiresAt,
         bytes: input.contentMd?.length,
+        extraction,
       }),
     );
-    return this.cached(input.url)!;
+    const cached = this.cached(input.url)!;
+    if (extraction)
+      this.db
+        .prepare("INSERT OR IGNORE INTO archive_cache_history VALUES (?,?)")
+        .run(cached.id, extraction);
+    return cached;
+  }
+
+  /** Archive adapter output even when the admission hash says there is no new article. */
+  preserveExtraction(input: CachedInput): number | undefined {
+    const id = this.archive?.extraction({ ...input });
+    const cached = this.cached(input.url);
+    if (id && cached)
+      this.db
+        .prepare("INSERT OR IGNORE INTO archive_cache_history VALUES (?,?)")
+        .run(cached.id, id);
+    return id;
   }
 
   /** Full-text-ish search over cached docs (fallback search). */

@@ -143,6 +143,7 @@ export async function bingNews(
       const target = unwrapBing(e.url);
       return {
         url: target,
+        ...(res.captureId ? { captureIds: [res.captureId] } : {}),
         title: e.title,
         excerpt: e.excerpt,
         publishedAt: e.publishedAt,
@@ -175,7 +176,7 @@ export function unwrapGoogle(url: string): string {
  * An opaque Google News id resolves through the article page's signature and Google's own decode call: two
  * requests. Any failure keeps the Google link, which still redirects in a browser.
  */
-export async function resolveGoogle(http: Http, url: string): Promise<string> {
+export async function resolveGoogle(http: Http, url: string, captures?: number[]): Promise<string> {
   const id = url.match(/news\.google\.com\/rss\/articles\/([^/?]+)/)?.[1];
   if (!id || !http.postForm) return url;
   try {
@@ -183,6 +184,7 @@ export async function resolveGoogle(http: Http, url: string): Promise<string> {
       headers: { accept: "text/html" },
       noRetryOn: NO_RETRY,
     });
+    if (page.captureId) captures?.push(page.captureId);
     const sg = page.text.match(/data-n-a-sg="([^"]+)"/)?.[1];
     const ts = page.text.match(/data-n-a-ts="([^"]+)"/)?.[1];
     if (!sg || !ts) return url;
@@ -229,6 +231,7 @@ export async function resolveGoogle(http: Http, url: string): Promise<string> {
       `f.req=${encodeURIComponent(JSON.stringify([[["Fbv4je", inner, null, "generic"]]]))}`,
       { noRetryOn: NO_RETRY },
     );
+    if (res.captureId) captures?.push(res.captureId);
     const target = res.text.match(/garturlres\\",\\"(https?:[^"\\]+)/)?.[1];
     return target ?? url;
   } catch {
@@ -281,6 +284,7 @@ export async function googleNews(
     return [
       {
         url: target,
+        ...(res.captureId ? { captureIds: [res.captureId] } : {}),
         title,
         publishedAt: Number.isFinite(date) ? new Date(date).toISOString() : undefined,
         sourceName: publisher ?? hostOf(target),
@@ -293,7 +297,7 @@ export async function googleNews(
   for (let i = 0; i < newest.length; i += 4)
     await Promise.all(
       newest.slice(i, i + 4).map(async (h) => {
-        h.url = await resolveGoogle(http, h.url);
+        h.url = await resolveGoogle(http, h.url, h.captureIds);
         if (!h.url.includes("news.google.com")) h.sourceName ??= hostOf(h.url);
       }),
     );
@@ -313,6 +317,7 @@ export async function bingWeb(
     .slice(0, limit)
     .map((e) => ({
       url: e.url,
+      ...(res.captureId ? { captureIds: [res.captureId] } : {}),
       title: e.title,
       excerpt: e.excerpt,
       publishedAt: e.publishedAt,
@@ -360,7 +365,15 @@ export async function duckDuckGo(
       const snippet = b.match(
         /<(a|div)\b[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/\1\s*>/,
       )?.[2];
-      return [{ url, title, excerpt: stripHtml(bold(snippet), 600), sourceName: hostOf(url) }];
+      return [
+        {
+          url,
+          title,
+          excerpt: stripHtml(bold(snippet), 600),
+          sourceName: hostOf(url),
+          ...(res.captureId ? { captureIds: [res.captureId] } : {}),
+        },
+      ];
     })
     .slice(0, limit);
 }
@@ -377,7 +390,8 @@ async function hnSearch(
       : `&numericFilters=${encodeURIComponent(`created_at_i>${Math.floor((Date.now() - hours * 3_600_000) / 1000)}`)}`;
   // A window means news: newest first. Without one, the best matches of any date.
   const url = `${HN_API}/${hours === undefined ? "search" : "search_by_date"}?query=${encodeURIComponent(query)}&tags=story${window}&hitsPerPage=${limit}`;
-  const body = JSON.parse((await get(http, url, "application/json")).text) as { hits: unknown[] };
+  const res = await get(http, url, "application/json");
+  const body = JSON.parse(res.text) as { hits: unknown[] };
   return (body.hits ?? []).flatMap((hit) => {
     const e = hitToEntry(hit as never);
     return e
@@ -388,6 +402,7 @@ async function hnSearch(
             excerpt: e.excerpt,
             publishedAt: e.publishedAt,
             sourceName: "Hacker News",
+            ...(res.captureId ? { captureIds: [res.captureId] } : {}),
           },
         ]
       : [];
@@ -484,6 +499,7 @@ export async function webSearch(
       publishedAt: doc.publishedAt,
       imageUrl: doc.imageUrl,
       sourceName: hostOf(doc.url),
+      captureIds: deps.store.archive.inputsForExtraction(doc.archiveExtractionId),
     }));
   if (cached.length) report.answered.push({ engine: "cache", hits: cached.length });
   // Newest first: new information always beats old.

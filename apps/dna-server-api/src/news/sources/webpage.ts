@@ -36,6 +36,9 @@ export function listingLinks(html: string, pageUrl: string, limit = 30): FeedEnt
 
 export const fetchWebPage: Fetcher = async (source, ctx) => {
   const res = await ctx.http.get(source.url, { headers: { accept: "text/html" } });
-  const entries = listingLinks(res.text, source.url);
+  const entries = listingLinks(res.text, source.url).map((entry) => ({
+    ...entry,
+    captureIds: res.captureId ? [res.captureId] : undefined,
+  }));
   return { ok: true, status: `200 ${entries.length} links`, entries };
 };

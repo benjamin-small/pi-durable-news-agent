@@ -44,7 +44,40 @@ export interface SourceFetch {
 
 export async function fetchSource(
   source: Source,
-  deps: { http: Http; store: Store; log?: Logger; queries?: string[]; since: Date },
+  deps: {
+    http: Http;
+    store: Store;
+    log?: Logger;
+    queries?: string[];
+    since: Date;
+    sweepId?: number;
+  },
+): Promise<SourceFetch> {
+  const { value } = await deps.store.archive.capture(
+    {
+      kind: source.kind === "web_page" ? "listing" : source.kind.startsWith("hn_") ? "api" : "feed",
+      trackId: deps.store.trackId,
+      sourceId: source.id,
+      sweepId: deps.sweepId,
+      extractor: `source-${source.kind}/v1`,
+      config: { since: deps.since.toISOString(), feedBodyMaxChars: 8000, excerptMaxChars: 600 },
+    },
+    deps.http,
+    (http) => fetchSourceBody(source, { ...deps, http }),
+  );
+  return value;
+}
+
+async function fetchSourceBody(
+  source: Source,
+  deps: {
+    http: Http;
+    store: Store;
+    log?: Logger;
+    queries?: string[];
+    since: Date;
+    sweepId?: number;
+  },
 ): Promise<SourceFetch> {
   const validators = deps.store.sources.validators(source.id);
   try {
@@ -59,34 +92,36 @@ export async function fetchSource(
       queries: deps.queries,
       since: deps.since,
     });
+    const inputs = result.entries.map((e) => ({
+      sourceId: source.id,
+      url: e.url,
+      title: e.title,
+      author: e.author,
+      publishedAt: e.publishedAt,
+      excerpt: e.excerpt,
+      captureIds: e.captureIds,
+      contentMd: e.contentMd,
+      imageUrl: e.imageUrl,
+      discussionUrl: e.discussionUrl,
+      points: e.points,
+      comments: e.comments,
+      fetchVia: "feed",
+      ttlMinutes: ENTRY_TTL_MIN,
+    }));
     const hash = entriesHash(result.entries);
     if (
       !result.notModified &&
       result.entries.length &&
       deps.store.sources.contentHash(source.id) === hash
     ) {
+      // The admission hash omits body text; preserve corrections even when no new item is admitted.
+      for (const input of inputs) deps.store.sources.preserveExtraction(input);
       deps.store.sources.fetched(source.id, { ok: true, status: "unchanged" });
       deps.log?.debug("source.unchanged", { sourceId: source.id, source: source.name });
       return { source, ok: true, status: "unchanged", docs: [], disabled: false };
     }
     if (result.entries.length) deps.store.sources.setContentHash(source.id, hash);
-    const docs = result.entries.map((e) =>
-      deps.store.sources.cache({
-        sourceId: source.id,
-        url: e.url,
-        title: e.title,
-        author: e.author,
-        publishedAt: e.publishedAt,
-        excerpt: e.excerpt,
-        contentMd: e.contentMd,
-        imageUrl: e.imageUrl,
-        discussionUrl: e.discussionUrl,
-        points: e.points,
-        comments: e.comments,
-        fetchVia: "feed",
-        ttlMinutes: ENTRY_TTL_MIN,
-      }),
-    );
+    const docs = inputs.map((input) => deps.store.sources.cache(input));
     deps.store.sources.fetched(source.id, {
       ok: true,
       status: result.status,

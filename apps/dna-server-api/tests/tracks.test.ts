@@ -195,13 +195,13 @@ test("legacy migration preserves every row, ID, relationship, retry key and AI s
     const before = new Map(
       tables.map((table) => [table, db.prepare(`SELECT * FROM ${table}`).all()]),
     );
-    assert.deepEqual(migrate(db), ["002_tracks.sql", "003_cyber_security.sql"]);
+    assert.deepEqual(migrate(db), ["002_tracks.sql", "003_cyber_security.sql", "004_archive.sql"]);
     for (const [table, rows] of before) {
       const after = db
         .prepare(`SELECT * FROM ${table}`)
         .all()
         .map((row) => {
-          const { track_id, ...original } = row;
+          const { track_id, archive_extraction_id: _archive_extraction_id, ...original } = row;
           if (track_id !== undefined) assert.equal(track_id, "ai", table);
           if (table === "requests")
             original.route = String(original.route).replace(/\?track=ai$/, "");
