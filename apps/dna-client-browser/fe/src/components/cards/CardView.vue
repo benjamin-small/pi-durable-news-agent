@@ -62,6 +62,9 @@ const image = computed(() =>
     </a>
     <div class="card-content">
       <div class="card-meta">
+        <span class="mono" :title="`Card ${card.id}`" :aria-label="`Card ${card.id}`"
+          >#{{ card.id }}</span
+        >
         <a
           v-if="card.url"
           class="source"

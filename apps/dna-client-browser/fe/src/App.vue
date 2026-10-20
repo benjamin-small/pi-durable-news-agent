@@ -4,11 +4,13 @@ import AgentColumn from "./components/AgentColumn.vue";
 import CardDetailDialog from "./components/CardDetailDialog.vue";
 import ExecutionsView from "./components/ExecutionsView.vue";
 import FeedColumn from "./components/FeedColumn.vue";
+import DeskTabs from "./components/DeskTabs.vue";
 import SettingsModal from "./components/SettingsModal.vue";
 import TopBar from "./components/TopBar.vue";
 import { layout } from "./client/layout";
 import { route } from "./client/route";
 import { start, toast, ui } from "./client/store";
+import { ACTIVE_TRACK_ID } from "./client/track";
 
 let stop: (() => void) | undefined;
 onMounted(() => (stop = start()));
@@ -37,19 +39,27 @@ function resizeMove(e: PointerEvent) {
 <template>
   <div class="app">
     <TopBar />
-    <main class="columns" :style="grid">
-      <FeedColumn v-if="layout.feed" />
-      <div
-        v-if="layout.feed && layout.agent"
-        class="resize-handle"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize the agent column"
-        @pointerdown="resizeStart"
-        @pointermove="resizeMove"
-      />
-      <AgentColumn v-if="layout.agent" />
-    </main>
+    <DeskTabs />
+    <div
+      id="desk-panels"
+      class="desk-panels"
+      role="tabpanel"
+      :aria-labelledby="`desk-tab-${ACTIVE_TRACK_ID}`"
+    >
+      <main class="columns" :style="grid">
+        <FeedColumn v-if="layout.feed" />
+        <div
+          v-if="layout.feed && layout.agent"
+          class="resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize the agent column"
+          @pointerdown="resizeStart"
+          @pointermove="resizeMove"
+        />
+        <AgentColumn v-if="layout.agent" />
+      </main>
+    </div>
     <ExecutionsView v-if="route.view === 'executions'" />
     <SettingsModal v-if="ui.settings" />
     <CardDetailDialog v-if="ui.card !== undefined" :id="ui.card" />
