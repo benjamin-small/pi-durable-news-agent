@@ -118,7 +118,7 @@ Original bodies are the bytes supplied by `fetch` after transport decompression,
 
 Normalized cache entries retain extraction history and source observation references, including the response that produced each search hit. The current cache still selects the richer body for compatibility; the archive independently retains shorter revisions. Full/deep reads also retain their larger extracted text. Existing cached text is imported once as `legacy-cache`, with no invented original or earlier revision history. Existing `data/scrapes/` files remain untouched; newly fetched full reads are archived alongside that compatibility store.
 
-The agreed policy is recorded as `source-bodies-v1`: ordinary bodies 90 days, cited versions 365 days, pinned versions indefinitely. **Deletion enforcement is disabled in this foundation PR: nothing expires automatically yet.** Exact analysis/card evidence bindings, pin controls, version-history UI and retention dry-run/enforcement are separate follow-ups. Existing conversation transcripts, decision excerpts and backups have separate lifecycles. Cache freshness (currently 24 hours) and the 7/14-day news lookback do not delete archived versions.
+The agreed policy is recorded as `source-bodies-v1`: ordinary bodies 90 days, cited versions 365 days, pinned versions indefinitely. **Deletion enforcement is disabled in this foundation PR: nothing expires automatically yet.** Evidence bindings, pins and inspection are described below; retention dry-run/enforcement is a separate follow-up. Existing conversation transcripts, decision excerpts and backups have separate lifecycles. Cache freshness (currently 24 hours) and the 7/14-day news lookback do not delete archived versions.
 
 Back up `data/archive/` together with both SQLite databases and the rest of `data/`. Stop the API for a consistent filesystem snapshot, or use a coordinated database/blob backup. A database-only backup cannot restore the archived bodies. On a crash, an unreferenced blob or temporary file may remain; no automatic orphan deletion runs in this release. Before rolling back the schema, stop the API and restore the complete pre-upgrade data snapshot.
 
@@ -367,3 +367,11 @@ Follow the [IndyDevDan YouTube channel](https://www.youtube.com/@indydevdan) to 
 Stay Focused and Keep Building
 
 - IndyDevDan
+
+### Evidence inspection and pins
+
+New judgments preserve an immutable JSON snapshot of the command definition and supplied variables before inference. The Jev call and HFS classification point to that snapshot. Reader tools also preserve the text they return; finding revisions are saved independently. Exact source passages are linked to matching immutable extractions and their captured response versions. Unmatched or caller-supplied text stays explicitly unattributed; a URL listed as evidence does not imply it was fetched.
+
+New card publication freezes the evidence already available for its item, plus pages read in that conversation and explicitly listed in its findings. Later fetches do not rewrite those citations. Older cards are not backfilled with guessed inputs. Card details includes **Source archive**, with normalized history, captured responses, first capture and observation times, SHA-256, completeness, provenance, escaped previews and attachment-only downloads. These routes require the client token and enforce selected-desk ownership; the hub forwards download security headers without exposing its token.
+
+Pin any retained original, extraction or evidence snapshot to protect that exact version. Each desk owns its own pins; removing one desk's pin cannot remove another's. An expired original keeps its metadata and cannot be restored by pinning. Pins are persistent, while cleanup remains disabled until the separate retention rollout.

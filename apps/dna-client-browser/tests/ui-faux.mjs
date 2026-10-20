@@ -288,6 +288,39 @@ try {
     (await page.locator(".card-detail .finding a").count()) === 2,
     "story sources expand with both original article links",
   );
+  await page.getByRole("region", { name: "Source archive" }).waitFor();
+  await page.locator(".archive-list button").first().click();
+  await page.locator(".archive-preview").waitFor();
+  check(
+    (await page.locator(".archive-preview").innerText()).length > 20,
+    "archive preview shows immutable text",
+  );
+  await page.getByRole("button", { name: "Pin this version", exact: true }).click();
+  await page.getByRole("button", { name: "Unpin this version", exact: true }).waitFor();
+  check(true, "exact archived version can be pinned");
+  await page.getByRole("button", { name: "Unpin this version", exact: true }).click();
+  await page.getByRole("button", { name: "Pin this version", exact: true }).waitFor();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Download original bytes" }).click();
+  const download = await downloadPromise;
+  check(
+    download.suggestedFilename().startsWith("archive-"),
+    "archive bytes download as an attachment through the hub",
+  );
+  await page.screenshot({ path: join(shots, "archive-evidence.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  check(
+    await page.locator(".archive-history").evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+    "archive preview stays within the narrow card dialog",
+  );
+  check(
+    (await page
+      .locator(".archive-preview script, .archive-preview iframe, .archive-preview img")
+      .count()) === 0,
+    "archive preview does not render active source markup",
+  );
+  await page.screenshot({ path: join(shots, "archive-evidence-narrow.png"), fullPage: true });
+  await page.setViewportSize({ width: 1600, height: 1000 });
   await page.locator(".card-detail").getByRole("button", { name: "Close", exact: true }).click();
   await chips.first().click();
   await page.locator("[data-timeline] .card").nth(1).waitFor();

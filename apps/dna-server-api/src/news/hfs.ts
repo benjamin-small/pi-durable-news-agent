@@ -51,6 +51,7 @@ const excerptOf = (item: Item, store: Store, max = 1500) => {
 export class Judge {
   readonly commands: Record<string, JevCommand>;
   readonly ledger: JevLedger;
+  private readonly evidenceIds = new WeakMap<SystemOneResult, number>();
 
   constructor(private readonly deps: { decide: Decide; store: Store; log?: Logger; dir: string }) {
     this.commands = Object.fromEntries(
@@ -75,10 +76,17 @@ export class Judge {
     const cmd = this.commands[name];
     const profile = profileFor(this.deps.store.trackId);
     vars = { ...vars, audience: profile.audience, coverage: profile.coverage };
+    const evidenceId = this.deps.store.evidence.record(
+      this.deps.store.trackId,
+      `judgment:${name}`,
+      { command: cmd, vars },
+      ref,
+    );
     try {
       const { result, rendered } = await runCommand(cmd, vars, this.deps.decide);
       const record = this.ledger.record(result, { command: cmd.name, version: cmd.version });
       this.deps.store.telemetry.jev({
+        archiveEvidenceId: evidenceId,
         command: cmd.name,
         version: cmd.version,
         provider: record.provider,
@@ -103,10 +111,12 @@ export class Judge {
         cost: record.cost.amount,
         sweepId: ref.sweepId,
       });
+      this.evidenceIds.set(result, evidenceId);
       return result;
     } catch (error) {
       this.ledger.fail(error, { command: cmd.name, version: cmd.version });
       this.deps.store.telemetry.jev({
+        archiveEvidenceId: evidenceId,
         command: cmd.name,
         version: cmd.version,
         questions: 0,
@@ -236,6 +246,7 @@ export class Judge {
       answers: result.answers,
       sweepId: ref.sweepId,
       toolCallId: ref.callId,
+      archiveEvidenceId: this.evidenceIds.get(result),
     });
     this.deps.store.news.updateItem(item.id, {
       status: ["presented", "duplicate"].includes(item.status) ? item.status : "classified",

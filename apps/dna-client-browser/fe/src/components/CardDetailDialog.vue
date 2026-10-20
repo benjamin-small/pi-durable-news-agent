@@ -7,6 +7,7 @@ import { api, attempt, ui } from "../client/store";
 import { clean } from "../client/text";
 import HfsPill from "./HfsPill.vue";
 import LoadingRows from "./LoadingRows.vue";
+import ArchiveHistory from "./ArchiveHistory.vue";
 
 const props = defineProps<{ id: number }>();
 const detail = ref<CardDetail>();
@@ -64,6 +65,7 @@ function openTool(id: number) {
             </li>
           </ul>
         </div>
+        <ArchiveHistory :card-id="id" />
         <footer>
           <a
             v-if="detail.card.url"
