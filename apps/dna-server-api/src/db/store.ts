@@ -12,6 +12,7 @@ import { TasteRepo, type KeywordKind } from "./repos/taste.ts";
 import { TelemetryRepo } from "./repos/telemetry.ts";
 import { TracksRepo } from "./repos/tracks.ts";
 import { DEFAULT_TRACK_ID } from "@dna/sdk";
+import { ArchiveRetention } from "../archive/retention.ts";
 import { EvidenceArchive } from "../archive/evidence.ts";
 import { Archive } from "../archive/archive.ts";
 
@@ -28,6 +29,7 @@ export interface Store {
   globalTelemetry: TelemetryRepo;
   archive: Archive;
   evidence: EvidenceArchive;
+  retention: ArchiveRetention;
   close(): void;
 }
 
@@ -54,6 +56,7 @@ export function openStore(dataDir: string, configDir: string): Store {
       sources: new SourcesRepo(db, DEFAULT_TRACK_ID, archive),
       archive,
       evidence,
+      retention: new ArchiveRetention(db, archive),
       news: new NewsRepo(db, DEFAULT_TRACK_ID, evidence),
       taste: new TasteRepo(db, DEFAULT_TRACK_ID),
       sweeps: new SweepsRepo(db, DEFAULT_TRACK_ID),

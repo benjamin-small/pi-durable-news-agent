@@ -41,6 +41,13 @@ function lastWord(
 export function buildCommands(state: CompletionState): Command[] {
   const cards = (arg: string) => lastWord(arg, (i) => (i === 0 ? state.cardIds() : []));
   return [
+    {
+      name: "archive",
+      cap: "archive.retention",
+      description:
+        "shared source archive policy and dry run; enable <token>, disable, cleanup <token>",
+      argumentHint: "[preview|enable <token>|disable|cleanup <token>]",
+    },
     { name: "chat", cap: "chat.watch", description: "the agent and its tool calls, live" },
     { name: "feed", cap: "feed.read", description: "news worth your attention, oldest first" },
     {

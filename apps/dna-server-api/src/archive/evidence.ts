@@ -17,7 +17,12 @@ export class EvidenceArchive {
     track: string,
     kind: string,
     input: unknown,
-    ref: { itemId?: number; conversationId?: number; url?: string } = {},
+    ref: {
+      itemId?: number;
+      conversationId?: number;
+      url?: string;
+      sourceExtractionIds?: number[];
+    } = {},
   ): number {
     const text = JSON.stringify(input);
     return this.transaction(() => {
@@ -42,46 +47,39 @@ export class EvidenceArchive {
             ref.url ?? null,
           ).lastInsertRowid,
       );
-      // Only link an extraction when a source passage in this exact input occurs in its immutable body.
-      // Searching by URL/cache history is ownership discovery, never an attribution by itself.
-      const item = ref.itemId
-        ? this.db.prepare("SELECT url FROM items WHERE id=?").get(ref.itemId)
-        : undefined;
-      const url = ref.url ?? item?.url;
-      if (url) {
-        const passages: string[] = [];
-        const visit = (v: unknown, key = "") => {
-          if (
-            typeof v === "string" &&
-            ["excerpt", "evidence", "text", "contentMd"].includes(key) &&
-            v.length >= 40
+      // References come from the reader that selected the body, never a later URL/history lookup.
+      // Also check that the recorded input actually contains a passage from that representation.
+      const passages: string[] = [];
+      const visit = (v: unknown, key = "") => {
+        if (
+          typeof v === "string" &&
+          ["excerpt", "evidence", "text", "contentMd", "article_text"].includes(key)
+        )
+          passages.push(...v.split(/\n{2,}/).filter((p) => p.length > 0));
+        else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) visit(x, k);
+      };
+      visit(input);
+      for (const source of new Set(ref.sourceExtractionIds ?? [])) {
+        const row = this.db
+          .prepare(
+            "SELECT e.blob_hash,b.expired_at FROM archive_extractions e JOIN archive_blobs b ON b.hash=e.blob_hash WHERE e.id=?",
           )
-            passages.push(...v.split(/\n{2,}/).filter((p) => p.length >= 40));
-          else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) visit(x, k);
-        };
-        visit(input);
-        const candidates = this.db
-          .prepare("SELECT id,blob_hash FROM archive_extractions WHERE url=? ORDER BY id DESC")
-          .all(url);
-        for (const passage of passages) {
-          for (const row of candidates) {
-            const blob = this.db
-              .prepare("SELECT expired_at FROM archive_blobs WHERE hash=?")
-              .get(row.blob_hash);
-            if (blob?.expired_at) continue;
-            const doc = JSON.parse(this.archive.readBlob(String(row.blob_hash)).toString());
-            if (
-              [doc.contentMd, doc.excerpt].some(
-                (body) => typeof body === "string" && body.includes(passage),
-              )
-            ) {
-              this.db
-                .prepare("INSERT OR IGNORE INTO archive_evidence_sources VALUES (?,?)")
-                .run(id, row.id);
-              break;
-            }
-          }
-        }
+          .get(source);
+        if (!row || row.expired_at) continue;
+        const doc = JSON.parse(this.archive.readBlob(String(row.blob_hash)).toString());
+        if (
+          passages.some((p) =>
+            [doc.contentMd, doc.excerpt].some(
+              (body) =>
+                typeof body === "string" &&
+                body.length > 0 &&
+                (body.includes(p) || p.includes(body)),
+            ),
+          )
+        )
+          this.db
+            .prepare("INSERT OR IGNORE INTO archive_evidence_sources VALUES (?,?)")
+            .run(id, source);
       }
       return id;
     });

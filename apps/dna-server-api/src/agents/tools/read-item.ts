@@ -45,7 +45,11 @@ export function readItem(deps: Deps) {
           deps.store.trackId,
           "read:item",
           { text: (text ?? "").slice(0, args.max_chars ?? 3000), output: lines.join("\n") },
-          { itemId: item.id, conversationId: api.conversationId as number },
+          {
+            itemId: item.id,
+            conversationId: api.conversationId as number,
+            sourceExtractionIds: cached?.archiveExtractionId ? [cached.archiveExtractionId] : [],
+          },
         );
         return toolText(lines.join("\n"));
       } catch (error) {

@@ -86,6 +86,29 @@ interface Command {
 }
 
 const COMMANDS: Record<string, Command> = {
+  archive: {
+    usage:
+      "archive [preview | disable | enable <preview-token> | cleanup <preview-token> | policy <ordinary-days> <cited-days> <budget-MiB>]",
+    summary: "Shared archive retention, dry run and bounded cleanup",
+    async run() {
+      if (!args[0] || args[0] === "preview") return { data: await client().archiveRetention() };
+      if (args[0] === "disable")
+        return { data: await client().archivePolicy({ enforcement: "disabled" }) };
+      if (args[0] === "enable" && args[1])
+        return { data: await client().archivePolicy({ enforcement: "enabled" }, args[1]) };
+      if (args[0] === "cleanup" && args[1]) return { data: await client().archiveCleanup(args[1]) };
+      if (args[0] === "policy")
+        return {
+          data: await client().archivePolicy({
+            ordinaryDays: num(args[1], "ordinary days"),
+            citedDays: num(args[2], "cited days"),
+            storageBudgetBytes: num(args[3], "budget MiB") * 1048576,
+            enforcement: "disabled",
+          }),
+        };
+      throw new Usage(COMMANDS.archive.usage);
+    },
+  },
   tracks: {
     usage: "tracks",
     summary: "Available news desks",

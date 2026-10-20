@@ -70,6 +70,9 @@ test("read commands print parseable JSON", async () => {
       dna("sources"),
       dna("model"),
     ]);
+  const archive = await dna("archive");
+  assert.equal(archive.json.policy.enforcement, "disabled");
+  assert.match(archive.json.token, /^[0-9a-f]{64}$/);
   assert.equal(status.json.info.device, "test");
   assert.equal(status.json.lastSweep.status, "completed");
   assert.equal(feed.json.items.length, 4, "news cards only");

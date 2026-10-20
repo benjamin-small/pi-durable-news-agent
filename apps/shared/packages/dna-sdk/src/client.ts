@@ -1,6 +1,9 @@
 // Typed client for one dna-server-api. Works in browsers and Node (fetch and streams). `token` is optional: the
 // browser hub injects it, so the browser never holds one.
 import type {
+  ArchivePolicy,
+  ArchiveRetentionReport,
+  ArchiveCleanupResult,
   ArchiveHistory,
   ArchivePreview,
   ArchiveKind,
@@ -224,6 +227,15 @@ export class DnaClient {
   }
   timeline(id: number) {
     return this.call<Timeline>("timelines.get", { params: { id } });
+  }
+  archiveRetention() {
+    return this.call<ArchiveRetentionReport>("archive.retention");
+  }
+  archivePolicy(patch: Partial<ArchivePolicy>, previewToken?: string) {
+    return this.call<ArchivePolicy>("archive.policy", { body: { ...patch, previewToken } });
+  }
+  archiveCleanup(previewToken: string) {
+    return this.call<ArchiveCleanupResult>("archive.cleanup", { body: { previewToken } });
   }
   archiveHistory(id: number) {
     return this.call<ArchiveHistory>("archive.history", { params: { id } });

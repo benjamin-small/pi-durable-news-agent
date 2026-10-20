@@ -252,14 +252,14 @@ export class SearchService {
         this.deps.http,
         async () => {
           const value = await this.deepScrapeBody(url, call);
-          this.deps.store.archive.extraction({
+          const archiveExtractionId = this.deps.store.archive.extraction({
             url,
             title: value.title,
             contentMd: value.markdown,
             fetchVia: value.via,
             fullRead: true,
           });
-          return value;
+          return { ...value, archiveExtractionId };
         },
       )
     ).value;
@@ -280,14 +280,14 @@ export class SearchService {
         this.deps.http,
         async () => {
           const value = await this.hyperFetchBody(url, call);
-          this.deps.store.archive.extraction({
+          const archiveExtractionId = this.deps.store.archive.extraction({
             url,
             title: value.doc.title,
             contentMd: value.markdown,
             fetchVia: value.via,
             fullRead: true,
           });
-          return value;
+          return { ...value, archiveExtractionId };
         },
       )
     ).value;

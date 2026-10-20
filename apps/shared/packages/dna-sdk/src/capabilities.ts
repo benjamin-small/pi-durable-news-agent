@@ -59,6 +59,10 @@ export const CAPABILITIES = {
     summary: "List, add, weight, toggle and remove keywords",
     routes: ["keywords.list", "keywords.add", "keywords.update", "keywords.remove"],
   },
+  "archive.retention": {
+    summary: "Preview retention, inspect storage and safely enable shared cleanup",
+    routes: ["archive.retention", "archive.policy", "archive.cleanup"],
+  },
   sources: {
     summary: "List, add, toggle and remove sources",
     routes: ["sources.list", "sources.add", "sources.update", "sources.remove"],

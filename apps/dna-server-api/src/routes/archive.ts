@@ -1,10 +1,17 @@
+import { cleanupArchive } from "../archive/cleanup.ts";
 import { int, invalid, notFound } from "../errors.ts";
-import { bodyOf, bool, oneOf, type Handlers, type RouteDeps } from "./types.ts";
+import { bodyOf, bool, num, str, oneOf, type Handlers, type RouteDeps } from "./types.ts";
 
 export function archiveRoutes({
   app,
 }: RouteDeps): Handlers<
-  "archive.history" | "archive.preview" | "archive.download" | "archive.pin"
+  | "archive.history"
+  | "archive.preview"
+  | "archive.download"
+  | "archive.pin"
+  | "archive.retention"
+  | "archive.policy"
+  | "archive.cleanup"
 > {
   const { store } = app;
   const target = (params: Record<string, unknown>) => ({
@@ -22,6 +29,42 @@ export function archiveRoutes({
     };
   };
   return {
+    "archive.retention": (_req, res) =>
+      res.set("cache-control", "no-store").json(store.retention.preview()),
+    "archive.policy": (req, res) => {
+      const body = bodyOf(req);
+      const patch = {
+        ...(body.ordinaryDays !== undefined
+          ? { ordinaryDays: num(body, "ordinaryDays", { min: 1, max: 3650, integer: true }) }
+          : {}),
+        ...(body.citedDays !== undefined
+          ? { citedDays: num(body, "citedDays", { min: 1, max: 3650, integer: true }) }
+          : {}),
+        ...(body.enforcement !== undefined
+          ? {
+              enforcement: oneOf(body.enforcement, "enforcement", ["disabled", "enabled"] as const),
+            }
+          : {}),
+        ...(body.storageBudgetBytes !== undefined
+          ? { storageBudgetBytes: num(body, "storageBudgetBytes", { min: 1048576, integer: true }) }
+          : {}),
+      };
+      try {
+        res.json(
+          store.retention.setPolicy(patch, str(body, "previewToken", { optional: true, max: 64 })),
+        );
+      } catch (error) {
+        throw invalid((error as Error).message);
+      }
+    },
+    "archive.cleanup": async (req, res) => {
+      const token = str(bodyOf(req), "previewToken", { max: 64 });
+      try {
+        res.json(await cleanupArchive(app, { previewToken: token }));
+      } catch (error) {
+        throw invalid((error as Error).message);
+      }
+    },
     "archive.history": (req, res) => {
       const id = int(req.params.id, "id");
       if (!store.news.card(id)) throw notFound("No card in this desk");

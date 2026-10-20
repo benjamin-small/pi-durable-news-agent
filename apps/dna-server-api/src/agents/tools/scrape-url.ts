@@ -36,7 +36,12 @@ export function scrapeUrl(deps: Deps) {
           deps.store.trackId,
           "read:scrape",
           { text: (doc.contentMd ?? "").slice(0, args.max_chars ?? 4000) },
-          { itemId: item?.id, url, conversationId: api.conversationId as number },
+          {
+            itemId: item?.id,
+            url,
+            conversationId: api.conversationId as number,
+            sourceExtractionIds: doc.archiveExtractionId ? [doc.archiveExtractionId] : [],
+          },
         );
         return toolText(
           `${doc.title ?? url} (via ${via}${credits ? `, ${credits} credits` : ""})\n${clip(doc.contentMd, args.max_chars ?? 4000)}`,

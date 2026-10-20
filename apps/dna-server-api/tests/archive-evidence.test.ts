@@ -39,7 +39,7 @@ test("publication freezes exact input and extraction; later shorter corrections 
       "ai",
       "judgment:hfs",
       { excerpt: old.slice(0, 240), claims: ["test"] },
-      { itemId: i.id },
+      { itemId: i.id, sourceExtractionIds: [store.sources.cached(url)!.archiveExtractionId!] },
     );
     const c = card(store, i.id);
     const before = store.evidence.history("ai", c.id);
@@ -101,6 +101,45 @@ test("desk ownership, independent pins and expired tombstones", () => {
     assert.equal(store.evidence.body("ai", "extraction", e.id), undefined);
     assert.throws(() => store.evidence.pin("ai", "extraction", e.id, true));
     assert.ok(store.evidence.entry("ai", "extraction", e.id)!.expiredAt);
+  } finally {
+    cleanup();
+  }
+});
+
+test("identical passages in newer corrections cannot redirect a read's source reference", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    const i = item(store);
+    const selected = store.sources.cached(url)!.archiveExtractionId!;
+    item(store, `${old}\n\nNew correction containing the same paragraph.`);
+    const newer = store.sources.cached(url)!.archiveExtractionId!;
+    assert.notEqual(newer, selected);
+    const read = store.evidence.record(
+      "ai",
+      "read:item",
+      { text: old.slice(0, 200) },
+      { itemId: i.id, sourceExtractionIds: [selected] },
+    );
+    assert.deepEqual(store.evidence.entry("ai", "evidence", read)!.sources, [selected]);
+    const unspecified = store.evidence.record(
+      "ai",
+      "caller:text",
+      { text: old.slice(0, 200) },
+      { itemId: i.id },
+    );
+    assert.deepEqual(store.evidence.entry("ai", "evidence", unspecified)!.sources, []);
+    item(store, "A short source snippet.");
+    // A shorter revision remains in history even while the compatibility cache retains its richer body.
+    const shortId = Number(
+      store.db.prepare("SELECT id FROM archive_extractions ORDER BY id DESC LIMIT 1").get()!.id,
+    );
+    const shortRead = store.evidence.record(
+      "ai",
+      "read:short",
+      { text: "A short source snippet." },
+      { itemId: i.id, sourceExtractionIds: [shortId] },
+    );
+    assert.deepEqual(store.evidence.entry("ai", "evidence", shortRead)!.sources, [shortId]);
   } finally {
     cleanup();
   }

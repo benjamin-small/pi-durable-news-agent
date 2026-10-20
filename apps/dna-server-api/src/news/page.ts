@@ -6,11 +6,11 @@ import type { Store } from "../db/store.ts";
 import { extractArticle } from "./extract.ts";
 import type { Http } from "./http.ts";
 
-export async function pageText(
+export async function pageRead(
   deps: { http: Http; store: Store; log?: Logger },
   item: Pick<Item, "id" | "url" | "title" | "excerpt" | "cacheId" | "sweepId">,
   max = 2400,
-): Promise<string | undefined> {
+): Promise<{ text: string; sourceExtractionIds: number[] } | undefined> {
   const { value } = await deps.store.archive.capture(
     {
       kind: "article",
@@ -26,8 +26,8 @@ export async function pageText(
     deps.store.evidence.record(
       deps.store.trackId,
       "read:page",
-      { text: value },
-      { itemId: item.id, url: item.url },
+      { text: value.text },
+      { itemId: item.id, url: item.url, sourceExtractionIds: value.sourceExtractionIds },
     );
   return value;
 }
@@ -36,11 +36,15 @@ async function pageTextBody(
   deps: { http: Http; store: Store; log?: Logger },
   item: Pick<Item, "id" | "url" | "title" | "excerpt" | "cacheId" | "sweepId">,
   max: number,
-): Promise<string | undefined> {
+): Promise<{ text: string; sourceExtractionIds: number[] } | undefined> {
   const cached = item.cacheId
     ? deps.store.sources.cachedById(item.cacheId)
     : deps.store.sources.cached(item.url);
-  if ((cached?.contentMd?.length ?? 0) > 500) return cached!.contentMd!.slice(0, max);
+  if ((cached?.contentMd?.length ?? 0) > 500)
+    return {
+      text: cached!.contentMd!.slice(0, max),
+      sourceExtractionIds: cached?.archiveExtractionId ? [cached.archiveExtractionId] : [],
+    };
   try {
     const res = await deps.http.get(item.url, {
       headers: { accept: "text/html,application/xhtml+xml" },
@@ -48,7 +52,7 @@ async function pageTextBody(
     });
     const article = extractArticle(res.text, res.url || item.url, 12_000);
     if (article.text.length < 200) return undefined;
-    deps.store.sources.cache({
+    const input = {
       url: item.url,
       title: article.title ?? item.title,
       excerpt: article.excerpt ?? item.excerpt,
@@ -58,10 +62,20 @@ async function pageTextBody(
       author: article.byline,
       fetchVia: "http",
       ttlMinutes: 24 * 60,
-    });
-    return article.text.slice(0, max);
+    };
+    deps.store.sources.cache(input);
+    const extraction = deps.store.archive.extraction(input);
+    return { text: article.text.slice(0, max), sourceExtractionIds: [extraction] };
   } catch (error) {
     deps.log?.warn("page.fetch_failed", { itemId: item.id, error: String(error).slice(0, 200) });
     return undefined;
   }
+}
+
+export async function pageText(
+  deps: Parameters<typeof pageRead>[0],
+  item: Parameters<typeof pageRead>[1],
+  max = 2400,
+): Promise<string | undefined> {
+  return (await pageRead(deps, item, max))?.text;
 }
