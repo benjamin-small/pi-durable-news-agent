@@ -138,6 +138,10 @@ page.on(
   "console",
   (m) => m.type() === "error" && !/Failed to load resource/.test(m.text()) && errors.push(m.text()),
 );
+const deskTab = (id) =>
+  page
+    .getByRole("tablist", { name: "News desks" })
+    .getByRole("tab", { name: id === "ai" ? "AI" : "Cyber Security", exact: true });
 const caps = new Set();
 const collectCaps = async () =>
   (
@@ -161,9 +165,35 @@ try {
   await page.waitForFunction(() => document.querySelectorAll(".card").length >= 3);
   await page.locator('[data-role="agent"]').first().waitFor();
   check(
-    (await page.getByTestId("active-track").inputValue()) === "ai",
+    (await deskTab("ai").getAttribute("aria-selected")) === "true",
     "the active AI desk is identified",
   );
+  await deskTab("cyber-security").waitFor();
+  check(
+    (await page.getByLabel("News track").count()) === 0,
+    "desk tabs replace the top-left dropdown",
+  );
+  await deskTab("ai").focus();
+  await page.keyboard.press("ArrowRight");
+  check(
+    await deskTab("cyber-security").evaluate((el) => el === document.activeElement),
+    "arrow keys move focus between desk tabs",
+  );
+  check(
+    (await deskTab("ai").getAttribute("aria-selected")) === "true",
+    "focusing another desk waits for activation",
+  );
+  await page.keyboard.press("Home");
+  check(
+    await deskTab("ai").evaluate((el) => el === document.activeElement),
+    "Home returns focus to the first desk",
+  );
+  await page.keyboard.press("Tab");
+  check(
+    (await page.locator(".agent-context").innerText()) === "AI conversation",
+    "the conversation column identifies its desk",
+  );
+
   check(
     await page.evaluate(
       () =>
@@ -509,6 +539,7 @@ try {
   );
 
   // ---------------------------------------------------------------- search, open_tab, highlight_item
+  const aiConversationId = (await call("GET", "/v1/agent")).conversationId;
   const searchBox = page.getByLabel("Search news");
   await searchBox.fill("durable");
   await page.locator('[data-tab="search-durable"]').waitFor();
@@ -523,6 +554,11 @@ try {
   check(
     (await page.locator('[data-tab^="search-"]').count()) === 1,
     "typing edits the open search tab instead of opening another",
+  );
+  check(
+    (await call("GET", "/v1/agent")).conversationId === aiConversationId &&
+      (await page.locator(".agent-context").innerText()) === "AI conversation",
+    "secondary search tabs retain the selected conversation",
   );
   await collectCaps();
   await page.getByRole("button", { name: "Close the durable agents search" }).click();
@@ -794,9 +830,17 @@ try {
   await page.getByRole("button", { name: "Close settings" }).click();
 
   // ---------------------------------------------------------------- dedicated Cyber Security desk
+
+  await composer.fill("AI conversation marker");
+  await composer.press("Enter");
+  await page.getByTestId("chat").getByText("AI conversation marker", { exact: true }).waitFor();
+  await page.getByLabel("Search news").fill("durable");
+  await page.locator('[data-tab="search-durable"] [role="tab"]').waitFor();
   await page.getByLabel("Message the agent").fill("AI draft stays with AI");
   const aiBeforeSwitch = await call("GET", "/v1/feed");
-  await page.getByLabel("News track").selectOption("cyber-security");
+  await deskTab("ai").focus();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Enter");
   await page.waitForURL((url) => url.searchParams.get("track") === "cyber-security");
   await page.waitForFunction(
     () => document.querySelector('[aria-label="Sweep schedule"]')?.value === "30",
@@ -810,6 +854,25 @@ try {
       (await page.getByLabel("Message the agent").inputValue()) === "",
     "switching desks starts with the Security feed and draft, without AI content",
   );
+  check(
+    (await deskTab("cyber-security").getAttribute("aria-selected")) === "true" &&
+      (await page.locator(".agent-context").innerText()) === "Cyber Security conversation",
+    "activating the Security desk changes both panel contexts",
+  );
+  check(
+    (await page.locator('[data-tab="search-durable"]').count()) === 0,
+    "AI search tabs stay within the AI desk",
+  );
+  await page.getByTestId("chat").waitFor();
+  check(
+    !(await page.getByTestId("chat").innerText()).includes("AI conversation marker"),
+    "the Security conversation does not show the AI conversation",
+  );
+  check(
+    (await call("GET", "/v1/agent?track=cyber-security")).conversationId !== aiConversationId,
+    "desk tabs select distinct durable conversations",
+  );
+
   const cyberRun = await call(
     "POST",
     "/v1/workflows/news-sweep?track=cyber-security",
@@ -841,21 +904,42 @@ try {
     (await call("GET", "/v1/schedule")).everyMinutes === 5,
     "changing the Security schedule leaves AI's cadence intact",
   );
+  await page.getByLabel("Message the agent").fill("Security conversation marker");
+  await page.getByLabel("Message the agent").press("Enter");
+  await page
+    .getByTestId("chat")
+    .getByText("Security conversation marker", { exact: true })
+    .waitFor();
   await page.getByLabel("Message the agent").fill("Security draft stays with Security");
   await page.screenshot({ path: join(shots, "cyber-security.png") });
+  await page.getByLabel("Search news").fill("Cryptography");
+  await page.locator('[data-tab="search-cryptography"] [role="tab"]').waitFor();
+
   await page.getByRole("button", { name: "Toggle the agent column" }).click();
-  await page.getByLabel("News track").selectOption("ai");
+  await deskTab("ai").click();
   await page.waitForURL((url) => url.searchParams.get("track") === "ai");
   await page.getByLabel("Message the agent").waitFor();
   check(
     (await page.getByLabel("Message the agent").inputValue()) === "AI draft stays with AI",
     "returning to AI restores its own draft and layout",
   );
+  await page.getByTestId("chat").getByText("AI conversation marker", { exact: true }).waitFor();
+  check(
+    !(await page.getByTestId("chat").innerText()).includes("Security conversation marker"),
+    "returning to AI restores its conversation without Security messages",
+  );
+  check(
+    (await page
+      .locator('[data-tab="search-durable"] [role="tab"]')
+      .getAttribute("aria-selected")) === "true",
+    "returning to AI restores its selected search view",
+  );
+
   check(
     JSON.stringify(await call("GET", "/v1/feed")) === JSON.stringify(aiBeforeSwitch),
     "the AI feed remains intact after a Security sweep",
   );
-  await page.getByLabel("News track").selectOption("cyber-security");
+  await deskTab("cyber-security").click();
   await page.waitForURL((url) => url.searchParams.get("track") === "cyber-security");
   await page.waitForFunction(
     () => document.querySelector('[aria-label="Sweep schedule"]')?.value === "15",
@@ -864,18 +948,39 @@ try {
     (await page.locator('[data-col="agent"]').count()) === 0,
     "Security restores its separate collapsed-column preference",
   );
+  check(
+    (await page
+      .locator('[data-tab="search-cryptography"] [role="tab"]')
+      .getAttribute("aria-selected")) === "true",
+    "Security restores its own selected search view",
+  );
+
   await page.getByRole("button", { name: "Toggle the agent column" }).click();
   check(
     (await page.getByLabel("Message the agent").inputValue()) ===
       "Security draft stays with Security",
     "Security retains its draft across track switches",
   );
-  await page.getByLabel("News track").selectOption("ai");
+  await page
+    .getByTestId("chat")
+    .getByText("Security conversation marker", { exact: true })
+    .waitFor();
+  check(true, "Security restores its conversation after multiple desk switches");
+
+  await deskTab("ai").click();
   await page.waitForURL((url) => url.searchParams.get("track") === "ai");
   await page.getByLabel("Message the agent").waitFor();
   await page.getByLabel("Message the agent").fill("");
 
   // ---------------------------------------------------------------- layout
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  check(
+    await page.locator(".desk-tabs").evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+    "both desk tabs fit a narrow viewport",
+  );
+  await page.screenshot({ path: join(shots, "desk-tabs-narrow.png") });
+  await page.setViewportSize({ width: 1600, height: 1000 });
   await collectCaps();
   await cleanText("main view");
   await page.getByRole("button", { name: "Toggle the news column" }).click();
@@ -886,6 +991,21 @@ try {
     (await page.locator('[data-col="feed"]').count()) === 0,
     "the collapsed column stays collapsed after a reload",
   );
+  check(
+    (await deskTab("ai").isVisible()) && (await deskTab("cyber-security").isVisible()),
+    "desk switching remains available with the news column hidden",
+  );
+  await deskTab("cyber-security").click();
+  await page.waitForURL((url) => url.searchParams.get("track") === "cyber-security");
+  await page.locator(".agent-context").waitFor();
+  check(
+    (await page.locator(".agent-context").innerText()) === "Cyber Security conversation",
+    "desk tabs switch the conversation even from the conversation-only layout",
+  );
+  await deskTab("ai").click();
+  await page.waitForURL((url) => url.searchParams.get("track") === "ai");
+  await page.locator('[data-col="agent"]').waitFor();
+
   await page.getByRole("button", { name: "Toggle the agent column" }).click();
   await page.locator(".toast", { hasText: "Keep one column open" }).waitFor();
   check(

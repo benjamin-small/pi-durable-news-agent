@@ -211,6 +211,13 @@ h4 {
   padding: 5px 10px;
   font-size: 13px;
 }
+.desk-panels {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
 .columns {
   flex: 1;
   min-height: 0;
@@ -294,7 +301,37 @@ h4 {
   padding: var(--s4) var(--s2);
 }
 
-/* Feed tabs: News first, then one tab per open timeline or search; the search box at the right */
+/* Desk tabs own both columns and remain accessible when either column is collapsed. */
+.desk-tabs {
+  display: flex;
+  gap: 4px;
+  flex: none;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0 var(--s2);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.desk-tab {
+  flex: none;
+  padding: 12px 16px 11px;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.desk-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+.desk-tab:hover {
+  color: var(--text);
+}
+.desk-tab:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -5px;
+}
+/* Secondary views: News first, then timelines and searches within the selected desk. */
 .feed-bar {
   display: flex;
   align-items: stretch;
@@ -805,6 +842,14 @@ h4 {
 /* Agent column */
 .agent-column {
   background: var(--bg);
+}
+.agent-context {
+  flex: none;
+  margin: 0;
+  padding: 11px var(--s2) 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
 }
 .model-row {
   display: flex;
@@ -2035,14 +2080,4 @@ a.source:hover {
   flex-direction: column;
   gap: 12px;
   padding: 18px var(--s2);
-}
-
-.track-select {
-  display: block;
-  font-size: 12px;
-  color: var(--muted);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  max-width: 220px;
 }
