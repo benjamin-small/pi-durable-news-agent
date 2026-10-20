@@ -22,6 +22,13 @@ export async function pageText(
     deps.http,
     (http) => pageTextBody({ ...deps, http }, item, max),
   );
+  if (value)
+    deps.store.evidence.record(
+      deps.store.trackId,
+      "read:page",
+      { text: value },
+      { itemId: item.id, url: item.url },
+    );
   return value;
 }
 

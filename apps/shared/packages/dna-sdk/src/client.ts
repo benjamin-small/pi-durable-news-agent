@@ -1,6 +1,9 @@
 // Typed client for one dna-server-api. Works in browsers and Node (fetch and streams). `token` is optional: the
 // browser hub injects it, so the browser never holds one.
 import type {
+  ArchiveHistory,
+  ArchivePreview,
+  ArchiveKind,
   AgentConfigBody,
   AgentState,
   Card,
@@ -221,6 +224,18 @@ export class DnaClient {
   }
   timeline(id: number) {
     return this.call<Timeline>("timelines.get", { params: { id } });
+  }
+  archiveHistory(id: number) {
+    return this.call<ArchiveHistory>("archive.history", { params: { id } });
+  }
+  archivePreview(kind: ArchiveKind, id: number) {
+    return this.call<ArchivePreview>("archive.preview", { params: { kind, id } });
+  }
+  archivePin(kind: ArchiveKind, id: number, pinned: boolean) {
+    return this.call<ArchivePreview>("archive.pin", { params: { kind, id }, body: { pinned } });
+  }
+  archiveDownloadUrl(kind: ArchiveKind, id: number) {
+    return this.baseUrl + routePath("archive.download", { kind, id }, this.query());
   }
   card(id: number) {
     return this.call<CardDetail>("cards.get", { params: { id } });

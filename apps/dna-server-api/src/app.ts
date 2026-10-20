@@ -5,6 +5,7 @@ import { identify, requireScope } from "./auth.ts";
 import { errorMiddleware, notFound } from "./errors.ts";
 import { idempotent } from "./idempotency.ts";
 import { requestLog } from "./request-log.ts";
+import { archiveRoutes } from "./routes/archive.ts";
 import { agentRoutes } from "./routes/agent.ts";
 import { executionRoutes } from "./routes/executions.ts";
 import { feedRoutes } from "./routes/feed.ts";
@@ -31,6 +32,7 @@ export function createHttpApp(app: App) {
         ...workflowRoutes(deps),
         ...scheduleRoutes(deps),
         ...feedRoutes(deps),
+        ...archiveRoutes(deps),
         ...tasteRoutes(deps),
         ...keywordRoutes(deps),
         ...sourceRoutes(deps),

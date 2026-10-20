@@ -33,6 +33,9 @@ export function proxy(
       res.status(upstream.status);
       for (const h of [
         "content-type",
+        "content-disposition",
+        "x-content-type-options",
+        "content-security-policy",
         "cache-control",
         "idempotent-replay",
         "x-request-id",

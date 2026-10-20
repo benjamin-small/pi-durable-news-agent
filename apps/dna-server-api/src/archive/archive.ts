@@ -119,9 +119,16 @@ export class Archive {
     // A corrupt pre-existing blob must never acquire another successful reference.
     this.readBlob(hash);
     this.db
-      .prepare("INSERT OR IGNORE INTO archive_blobs VALUES (?,?,?,?)")
+      .prepare(
+        "INSERT OR IGNORE INTO archive_blobs(hash,bytes,stored_bytes,created_at) VALUES (?,?,?,?)",
+      )
       .run(hash, body.byteLength, statSync(file).size, new Date().toISOString());
     return hash;
+  }
+
+  /** Immutable body writer shared by exact-input evidence snapshots. */
+  saveBody(body: Uint8Array): string {
+    return this.blob(body);
   }
 
   /** Capture before adapters parse or clip. Any archive failure survives callers' fallback catches. */

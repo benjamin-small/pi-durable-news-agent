@@ -109,6 +109,12 @@ export function openPage(deps: Deps) {
         return toolError(`${url} has ${chunks} chunk${chunks === 1 ? "" : "s"}.`, [
           `Give chunk 1 to ${chunks}.`,
         ]);
+      deps.store.evidence.record(
+        deps.store.trackId,
+        "read:open-page",
+        { text: text.slice((chunk - 1) * CHUNK_CHARS, chunk * CHUNK_CHARS) },
+        { itemId: item?.id, url, conversationId: api.conversationId as number },
+      );
       return toolText(
         [
           `${url} (via ${fetched}), chunk ${chunk} of ${chunks}`,

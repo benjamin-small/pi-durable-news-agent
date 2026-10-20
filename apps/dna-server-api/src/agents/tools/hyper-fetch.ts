@@ -74,6 +74,12 @@ export function hyperFetch(deps: Deps) {
           `Give chunk 1 to ${chunks}.`,
         ]);
       const title = deps.store.sources.cached(url)?.title ?? url;
+      deps.store.evidence.record(
+        deps.store.trackId,
+        "read:hyper-fetch",
+        { text: text.slice((chunk - 1) * CHUNK_CHARS, chunk * CHUNK_CHARS) },
+        { itemId: item?.id, url, conversationId: api.conversationId as number },
+      );
       return toolText(
         [
           `${title} (via ${fetched}), chunk ${chunk} of ${chunks}, ${text.length} chars in all`,

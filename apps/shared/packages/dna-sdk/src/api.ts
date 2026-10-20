@@ -634,3 +634,33 @@ export interface LogQuery {
   callId?: string;
   limit?: number;
 }
+
+export type ArchiveKind = "version" | "extraction" | "evidence";
+export interface ArchiveEntry {
+  citedAt?: string;
+  url?: string;
+  observations?: number;
+  lastSeenAt?: string;
+  id: number;
+  kind: ArchiveKind;
+  hash: string;
+  bytes: number;
+  at: string;
+  label: string;
+  completeness?: "complete" | "partial" | "unknown";
+  provenance?: string;
+  expiredAt?: string;
+  pinned: boolean;
+  protectedByOtherDesk: boolean;
+  sources: number[];
+}
+export interface ArchiveHistory {
+  evidence: ArchiveEntry[];
+  extractions: ArchiveEntry[];
+  versions: ArchiveEntry[];
+}
+export interface ArchivePreview {
+  entry: ArchiveEntry;
+  text?: string;
+  clipped?: boolean;
+}
