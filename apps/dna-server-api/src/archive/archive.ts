@@ -66,6 +66,7 @@ export class ArchiveError extends Error {
 
 /** One shared blob store, with async-local acquisition contexts rather than mutable global ownership. */
 export class Archive {
+  activeAcquisitions = 0;
   private readonly sessions = new AsyncLocalStorage<Session>();
   private readonly wrappers = new WeakMap<Http, Http>();
   constructor(
@@ -119,9 +120,21 @@ export class Archive {
     // A corrupt pre-existing blob must never acquire another successful reference.
     this.readBlob(hash);
     this.db
-      .prepare("INSERT OR IGNORE INTO archive_blobs VALUES (?,?,?,?)")
+      .prepare(
+        "UPDATE archive_cleanup_entries SET cancelled_at=?,error=? WHERE blob_hash=? AND deleted_at IS NULL AND cancelled_at IS NULL AND EXISTS (SELECT 1 FROM archive_blobs WHERE hash=? AND expired_at IS NOT NULL)",
+      )
+      .run(new Date().toISOString(), "Cancelled: bytes restored by a new capture", hash, hash);
+    this.db
+      .prepare(
+        "INSERT INTO archive_blobs(hash,bytes,stored_bytes,created_at) VALUES (?,?,?,?) ON CONFLICT(hash) DO UPDATE SET expired_at=NULL,purged_at=NULL,purge_attempted_at=NULL,stored_bytes=excluded.stored_bytes",
+      )
       .run(hash, body.byteLength, statSync(file).size, new Date().toISOString());
     return hash;
+  }
+
+  /** Immutable body writer shared by exact-input evidence snapshots. */
+  saveBody(body: Uint8Array): string {
+    return this.blob(body);
   }
 
   /** Capture before adapters parse or clip. Any archive failure survives callers' fallback catches. */
@@ -131,16 +144,21 @@ export class Archive {
     operation: (http: Http) => Promise<T>,
   ): Promise<{ value: T; captureIds: number[] }> {
     const session: Session = { context, observations: [] };
-    return this.sessions.run(session, async () => {
-      let value: T;
-      try {
-        value = await operation(this.transport(http));
-      } catch (error) {
-        throw session.failure ?? error;
-      }
-      if (session.failure) throw session.failure;
-      return { value, captureIds: [...session.observations] };
-    });
+    this.activeAcquisitions++;
+    try {
+      return await this.sessions.run(session, async () => {
+        let value: T;
+        try {
+          value = await operation(this.transport(http));
+        } catch (error) {
+          throw session.failure ?? error;
+        }
+        if (session.failure) throw session.failure;
+        return { value, captureIds: [...session.observations] };
+      });
+    } finally {
+      this.activeAcquisitions--;
+    }
   }
 
   transport(base: Http): Http {

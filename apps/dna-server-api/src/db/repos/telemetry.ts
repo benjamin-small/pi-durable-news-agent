@@ -119,6 +119,7 @@ const toEvent = (r: any): AgentEventRow => ({
 });
 
 export interface JevCallInput {
+  archiveEvidenceId?: number;
   command?: string;
   version?: number;
   provider?: string;
@@ -508,10 +509,11 @@ export class TelemetryRepo implements TelemetryStore {
 
   jev(input: JevCallInput): number {
     const r = this.prepare(
-      `INSERT INTO jev_calls (track_id, command, version, provider, model, questions, answers_json, input_tokens, output_tokens, cost_usd, cost_source, elapsed_ms, attempts, error, item_id, sweep_id, conversation_id, call_id, created_at)
-         VALUES (:write_track, :command, :version, :provider, :model, :questions, :answers, :input, :output, :cost, :source, :elapsed, :attempts, :error, :item, :sweep, :conv, :call, :now)`,
+      `INSERT INTO jev_calls (track_id, command, version, provider, model, questions, answers_json, input_tokens, output_tokens, cost_usd, cost_source, elapsed_ms, attempts, error, item_id, sweep_id, conversation_id, call_id, created_at,archive_evidence_id)
+         VALUES (:write_track, :command, :version, :provider, :model, :questions, :answers, :input, :output, :cost, :source, :elapsed, :attempts, :error, :item, :sweep, :conv, :call, :now,:archive_evidence)`,
     ).run(
       bind({
+        archive_evidence: input.archiveEvidenceId,
         write_track: this.trackOf(input.conversationId, undefined, input.sweepId),
         command: input.command,
         version: input.version,

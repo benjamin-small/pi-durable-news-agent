@@ -1,12 +1,10 @@
 // The deep-research agent's view of the web: deep_search searches the whole web (not only news) and open_page reads a
 // page in full with the links on it, so a researcher can follow a trail 2 to 10 links deep. Firecrawl when
 // FIRECRAWL_API_KEY is set, the free Bing web search and direct fetches when not. Neither adds items to the news feed.
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineAppTool, toolError, toolText } from "@dna/durable-agent";
 import type { Deps } from "../../deps.ts";
-import { CHUNK_CHARS, savedText, scrapeFile } from "./hyper-fetch.ts";
+import { CHUNK_CHARS, savedText, scrapeFile, saveScrape, savedSource } from "./hyper-fetch.ts";
 import { ref } from "./shared.ts";
 
 export function deepSearch(deps: Deps) {
@@ -94,8 +92,7 @@ export function openPage(deps: Deps) {
             `## Links on this page (${page.links.length})`,
             ...page.links.map((l) => `- ${l.text || "(no text)"}: ${l.url}`),
           ].join("\n\n");
-          mkdirSync(dirname(file), { recursive: true });
-          writeFileSync(file, text);
+          saveScrape(file, text, page.archiveExtractionId);
           fetched = `${page.via}${page.credits ? `, ${page.credits} credits` : ""}`;
         } catch (error) {
           return toolError(`Could not open ${url}: ${String(error).slice(0, 200)}`, [
@@ -109,6 +106,17 @@ export function openPage(deps: Deps) {
         return toolError(`${url} has ${chunks} chunk${chunks === 1 ? "" : "s"}.`, [
           `Give chunk 1 to ${chunks}.`,
         ]);
+      deps.store.evidence.record(
+        deps.store.trackId,
+        "read:open-page",
+        { text: text.slice((chunk - 1) * CHUNK_CHARS, chunk * CHUNK_CHARS) },
+        {
+          itemId: item?.id,
+          url,
+          conversationId: api.conversationId as number,
+          sourceExtractionIds: savedSource(file, text),
+        },
+      );
       return toolText(
         [
           `${url} (via ${fetched}), chunk ${chunk} of ${chunks}`,

@@ -9,6 +9,8 @@ import type {
   TimelineRef,
   TimelineSummary,
 } from "@dna/sdk";
+import type { EvidenceArchive } from "../../archive/evidence.ts";
+import type { Db } from "../db.ts";
 import { TrackRepo } from "../track-repo.ts";
 import { bind, nowIso, num, parse, str, tx } from "../db.ts";
 import { canonicalUrl, urlHash } from "./sources.ts";
@@ -151,6 +153,13 @@ const RELEASE_VISIBLE = `NOT EXISTS (SELECT 1 FROM items ri JOIN release_heads r
   WHERE ri.id=c.item_id AND rh.visible_card_id != c.id)`;
 
 export class NewsRepo extends TrackRepo {
+  constructor(
+    db: Db,
+    trackId = "ai",
+    private readonly evidence?: EvidenceArchive,
+  ) {
+    super(db, trackId);
+  }
   // Items
 
   /** Insert a new item, or return the existing one for the same canonical URL. */
@@ -198,7 +207,7 @@ export class NewsRepo extends TrackRepo {
 
   /** Populate existing releases on boot, then choose by publication date across stable, preview and nightly. */
   refreshReleases(backfill = false): void {
-    tx(this.db, () => {
+    const run = () => {
       if (backfill)
         for (const row of this.prepare(
           "SELECT id,url FROM items WHERE track_id = :track AND release_key IS NULL",
@@ -219,7 +228,9 @@ export class NewsRepo extends TrackRepo {
         items.sort((a, b) => comparePublished(b, a));
         save.run(key, items[0].id, items.find((i) => i.cardId)?.cardId ?? null);
       }
-    });
+    };
+    if (this.db.isTransaction) run();
+    else tx(this.db, run);
   }
 
   latestRelease(itemId: number): number | undefined {
@@ -459,6 +470,9 @@ export class NewsRepo extends TrackRepo {
           nowIso(),
           storyId,
         );
+        const head = this.storyHead(storyId);
+        if (head && (!previous || previous.storyId !== storyId || previous.role !== role))
+          this.evidence?.publish(this.trackId, head, item.id, undefined, nowIso());
       }
     });
     return storyId;
@@ -546,15 +560,17 @@ export class NewsRepo extends TrackRepo {
     answers?: unknown;
     sweepId?: number;
     toolCallId?: string;
+    archiveEvidenceId?: number;
   }): Classification {
     this.requireOwned("items", input.itemId);
     this.requireOwned("sweeps", input.sweepId);
     const r = this.prepare(
-      `INSERT INTO classifications (track_id, item_id, command, version, model, hype, facts, signal, primary_category, labels_json, ranked_json, suspect_combo, answers_json, sweep_id, tool_call_id, created_at)
-         VALUES (:track, :item_id, :command, :version, :model, :hype, :facts, :signal, :primary_category, :labels, :ranked, :suspect, :answers, :sweep_id, :tool_call_id, :now)`,
+      `INSERT INTO classifications (track_id, item_id, command, version, model, hype, facts, signal, primary_category, labels_json, ranked_json, suspect_combo, answers_json, sweep_id, tool_call_id, created_at,archive_evidence_id)
+         VALUES (:track, :item_id, :command, :version, :model, :hype, :facts, :signal, :primary_category, :labels, :ranked, :suspect, :answers, :sweep_id, :tool_call_id, :now,:archive_evidence)`,
     ).run(
       bind({
         item_id: input.itemId,
+        archive_evidence: input.archiveEvidenceId,
         command: input.command,
         version: input.version,
         model: input.model,
@@ -614,7 +630,13 @@ export class NewsRepo extends TrackRepo {
         now: nowIso(),
       }),
     );
-    return this.findings(input.itemId).at(-1)!;
+    const finding = this.findings(input.itemId).at(-1)!;
+    const evidenceId = this.evidence?.record(this.trackId, `finding:${finding.id}`, input, input);
+    if (evidenceId)
+      this.db
+        .prepare("UPDATE findings SET archive_evidence_id=? WHERE id=?")
+        .run(evidenceId, finding.id);
+    return finding;
   }
 
   findings(itemId: number): Finding[] {
@@ -959,34 +981,44 @@ export class NewsRepo extends TrackRepo {
     this.requireOwned("stories", input.storyId);
     this.requireOwned("images", input.imageId);
     this.requireOwned("sweeps", input.sweepId);
-    const existing = this.cardByToolCall(input.toolCallId);
-    if (existing) return { card: existing, created: false };
-    const r = this.prepare(
-      `INSERT INTO cards (track_id, kind, component, item_id, story_id, image_id, props_json, hype, facts, signal, primary_category, labels_json, attention, tool_call_id, conversation_id, sweep_id, created_at)
+    const write = () => {
+      const existing = this.cardByToolCall(input.toolCallId);
+      if (existing) return { card: existing, created: false };
+      const r = this.prepare(
+        `INSERT INTO cards (track_id, kind, component, item_id, story_id, image_id, props_json, hype, facts, signal, primary_category, labels_json, attention, tool_call_id, conversation_id, sweep_id, created_at)
          VALUES (:track, :kind, :component, :item_id, :story_id, :image_id, :props, :hype, :facts, :signal, :primary, :labels, :attention, :tool_call_id, :conversation_id, :sweep_id, :now)`,
-    ).run(
-      bind({
-        kind: input.kind,
-        component: input.component,
-        item_id: input.itemId,
-        story_id: input.storyId,
-        image_id: input.imageId,
-        props: input.props,
-        hype: input.hfs?.hype,
-        facts: input.hfs?.facts,
-        signal: input.hfs?.signal,
-        primary: input.hfs?.primary,
-        labels: input.hfs?.labels,
-        attention: input.attention,
-        tool_call_id: input.toolCallId,
-        conversation_id: input.conversationId,
-        sweep_id: input.sweepId,
-        now: nowIso(),
-      }),
-    );
-    if (input.itemId) this.updateItem(input.itemId, { status: "presented" });
-    if (input.itemId && packageRelease(this.item(input.itemId)!.url)) this.refreshReleases();
-    return { card: this.card(Number(r.lastInsertRowid))!, created: true };
+      ).run(
+        bind({
+          kind: input.kind,
+          component: input.component,
+          item_id: input.itemId,
+          story_id: input.storyId,
+          image_id: input.imageId,
+          props: input.props,
+          hype: input.hfs?.hype,
+          facts: input.hfs?.facts,
+          signal: input.hfs?.signal,
+          primary: input.hfs?.primary,
+          labels: input.hfs?.labels,
+          attention: input.attention,
+          tool_call_id: input.toolCallId,
+          conversation_id: input.conversationId,
+          sweep_id: input.sweepId,
+          now: nowIso(),
+        }),
+      );
+      const cardId = Number(r.lastInsertRowid);
+      this.evidence?.publish(this.trackId, cardId, input.itemId, input.conversationId);
+      const storyId =
+        input.storyId ?? (input.itemId ? this.membership(input.itemId)?.storyId : undefined);
+      if (storyId)
+        for (const member of this.storyMembers(storyId))
+          if (member.id !== input.itemId) this.evidence?.publish(this.trackId, cardId, member.id);
+      if (input.itemId) this.updateItem(input.itemId, { status: "presented" });
+      if (input.itemId && packageRelease(this.item(input.itemId)!.url)) this.refreshReleases();
+      return { card: this.card(Number(r.lastInsertRowid))!, created: true };
+    };
+    return this.db.isTransaction ? write() : tx(this.db, write);
   }
 
   setCardImage(cardId: number, imageId: number): void {

@@ -13,6 +13,48 @@ export interface RouteSpec {
 }
 
 export const ROUTES = {
+  "archive.retention": {
+    method: "GET",
+    path: "/v1/archive-retention",
+    scope: "read",
+    summary: "Shared retention policy, storage and non-destructive cleanup preview",
+  },
+  "archive.policy": {
+    method: "PATCH",
+    path: "/v1/archive-retention/policy",
+    scope: "settings",
+    summary: "Set shared retention policy; enable only after preview",
+  },
+  "archive.cleanup": {
+    method: "POST",
+    path: "/v1/archive-retention/cleanup",
+    scope: "settings",
+    summary: "Apply a current cleanup preview, in bounded resumable batches",
+  },
+  "archive.history": {
+    method: "GET",
+    path: "/v1/cards/:id/archive",
+    scope: "read",
+    summary: "Immutable publication evidence and source version history",
+  },
+  "archive.preview": {
+    method: "GET",
+    path: "/v1/archive/:kind/:id",
+    scope: "read",
+    summary: "Plain text archive preview",
+  },
+  "archive.download": {
+    method: "GET",
+    path: "/v1/archive/:kind/:id/download",
+    scope: "read",
+    summary: "Download immutable archived bytes as an attachment",
+  },
+  "archive.pin": {
+    method: "PATCH",
+    path: "/v1/archive/:kind/:id/pin",
+    scope: "settings",
+    summary: "Pin or unpin this exact version for the selected desk",
+  },
   "tracks.list": {
     method: "GET",
     path: "/v1/tracks",

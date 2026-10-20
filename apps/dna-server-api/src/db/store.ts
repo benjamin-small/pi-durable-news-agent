@@ -12,6 +12,8 @@ import { TasteRepo, type KeywordKind } from "./repos/taste.ts";
 import { TelemetryRepo } from "./repos/telemetry.ts";
 import { TracksRepo } from "./repos/tracks.ts";
 import { DEFAULT_TRACK_ID } from "@dna/sdk";
+import { ArchiveRetention } from "../archive/retention.ts";
+import { EvidenceArchive } from "../archive/evidence.ts";
 import { Archive } from "../archive/archive.ts";
 
 export interface Store {
@@ -26,6 +28,8 @@ export interface Store {
   telemetry: TelemetryRepo;
   globalTelemetry: TelemetryRepo;
   archive: Archive;
+  evidence: EvidenceArchive;
+  retention: ArchiveRetention;
   close(): void;
 }
 
@@ -43,6 +47,7 @@ export function openStore(dataDir: string, configDir: string): Store {
     migrate(db);
     const archive = new Archive(db, join(dataDir, "archive"));
     archive.importLegacyCache();
+    const evidence = new EvidenceArchive(db, archive);
     const store: Store = {
       db,
       trackId: DEFAULT_TRACK_ID,
@@ -50,7 +55,9 @@ export function openStore(dataDir: string, configDir: string): Store {
       settings: new SettingsRepo(db, DEFAULT_TRACK_ID),
       sources: new SourcesRepo(db, DEFAULT_TRACK_ID, archive),
       archive,
-      news: new NewsRepo(db, DEFAULT_TRACK_ID),
+      evidence,
+      retention: new ArchiveRetention(db, archive),
+      news: new NewsRepo(db, DEFAULT_TRACK_ID, evidence),
       taste: new TasteRepo(db, DEFAULT_TRACK_ID),
       sweeps: new SweepsRepo(db, DEFAULT_TRACK_ID),
       telemetry: new TelemetryRepo(db, undefined, DEFAULT_TRACK_ID),
@@ -83,7 +90,7 @@ export function scopeStore(owner: Store, trackId: string, configDir: string): St
     trackId,
     settings: new SettingsRepo(db, trackId),
     sources: new SourcesRepo(db, trackId, owner.archive),
-    news: new NewsRepo(db, trackId),
+    news: new NewsRepo(db, trackId, owner.evidence),
     taste: new TasteRepo(db, trackId),
     sweeps: new SweepsRepo(db, trackId),
     telemetry: new TelemetryRepo(db, undefined, trackId),

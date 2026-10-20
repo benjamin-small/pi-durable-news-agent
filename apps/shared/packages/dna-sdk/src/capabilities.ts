@@ -21,7 +21,10 @@ export const CAPABILITIES = {
     summary: "Open a timeline: related news in date order",
     routes: ["timelines.list", "timelines.get"],
   },
-  "card.read": { summary: "One card with its item, findings and tool call", routes: ["cards.get"] },
+  "card.read": {
+    summary: "One card with its item, findings and tool call",
+    routes: ["cards.get", "archive.history", "archive.preview", "archive.download", "archive.pin"],
+  },
   "feedback.more": { summary: "Show me more like this card", routes: ["cards.feedback"] },
   "feedback.less": { summary: "Show me less like this card", routes: ["cards.feedback"] },
   "feedback.label": { summary: "Label a card hype, facts or signal", routes: ["cards.feedback"] },
@@ -55,6 +58,10 @@ export const CAPABILITIES = {
   keywords: {
     summary: "List, add, weight, toggle and remove keywords",
     routes: ["keywords.list", "keywords.add", "keywords.update", "keywords.remove"],
+  },
+  "archive.retention": {
+    summary: "Preview retention, inspect storage and safely enable shared cleanup",
+    routes: ["archive.retention", "archive.policy", "archive.cleanup"],
   },
   sources: {
     summary: "List, add, toggle and remove sources",

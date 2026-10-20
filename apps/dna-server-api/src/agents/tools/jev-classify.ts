@@ -3,7 +3,7 @@ import { defineAppTool, toolError, toolText } from "@dna/durable-agent";
 import type { Deps } from "../../deps.ts";
 import { JEV_COMMANDS } from "../../news/hfs.ts";
 import { StoryMatcher } from "../../news/stories.ts";
-import { pageText } from "../../news/page.ts";
+import { pageRead } from "../../news/page.ts";
 import { weightsOf } from "../../news/rank.ts";
 import { FixableError, ref, requireItem } from "./shared.ts";
 
@@ -34,11 +34,16 @@ export function jevClassify(deps: Deps) {
         switch (args.command) {
           case "hfs": {
             // Facts needs what the page says, not a one line feed excerpt.
-            const page = await pageText(deps, item);
+            const page = await pageRead(deps, item);
             const evidence = page
-              ? `${item.excerpt ?? item.title}\n\n${page}`.slice(0, 2400)
+              ? `${item.excerpt ?? item.title}\n\n${page.text}`.slice(0, 2400)
               : undefined;
-            const hfs = await deps.judge.hfs(item, r, undefined, evidence);
+            const hfs = await deps.judge.hfs(
+              item,
+              { ...r, sourceExtractionIds: page?.sourceExtractionIds },
+              undefined,
+              evidence,
+            );
             text = `#${item.id} hfs: ${hfs.ranked.map((x) => `${x.category} ${x.score}`).join(", ")}. primary ${hfs.primary}, labels ${hfs.labels.join(" and ") || "none"}${hfs.suspectCombo ? ". suspect_combo: hype and signal without facts, ask the reader with ask_taste" : ""}.`;
             break;
           }
@@ -62,6 +67,10 @@ export function jevClassify(deps: Deps) {
             const support = await deps.judge.claimSupport(args.claims, evidence, {
               ...r,
               itemId: item.id,
+              sourceExtractionIds:
+                args.evidence === undefined && cached?.archiveExtractionId
+                  ? [cached.archiveExtractionId]
+                  : [],
             });
             text = support
               .map(

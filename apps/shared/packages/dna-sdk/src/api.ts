@@ -634,3 +634,74 @@ export interface LogQuery {
   callId?: string;
   limit?: number;
 }
+
+export type ArchiveKind = "version" | "extraction" | "evidence";
+export interface ArchiveEntry {
+  citedAt?: string;
+  url?: string;
+  observations?: number;
+  lastSeenAt?: string;
+  id: number;
+  kind: ArchiveKind;
+  hash: string;
+  bytes: number;
+  at: string;
+  label: string;
+  completeness?: "complete" | "partial" | "unknown";
+  provenance?: string;
+  expiredAt?: string;
+  pinned: boolean;
+  protectedByOtherDesk: boolean;
+  sources: number[];
+}
+export interface ArchiveHistory {
+  evidence: ArchiveEntry[];
+  extractions: ArchiveEntry[];
+  versions: ArchiveEntry[];
+}
+export interface ArchivePreview {
+  entry: ArchiveEntry;
+  text?: string;
+  clipped?: boolean;
+}
+
+export interface ArchivePolicy {
+  ordinaryDays: number;
+  citedDays: number;
+  pinsIndefinite: true;
+  enforcement: "disabled" | "enabled";
+  storageBudgetBytes: number;
+  revision: number;
+}
+export interface ArchiveCleanupResult {
+  id: number;
+  status: "marked" | "deferred" | "completed" | "partial";
+  marked: number;
+  deleted: number;
+  bytes: number;
+}
+export interface ArchiveRetentionReport {
+  orphanBytes: number;
+  orphanCandidateCount: number;
+  orphans: { path: string; storedBytes: number }[];
+  policy: ArchivePolicy;
+  generatedAt: string;
+  token: string;
+  active: boolean;
+  storedBytes: number;
+  reclaimableBytes: number;
+  pinnedBytes: number;
+  citedBytes: number;
+  pendingBytes: number;
+  overBudget: boolean;
+  candidateCount: number;
+  candidates: { hash: string; storedBytes: number; expiresAt: string; reason: string }[];
+  recentRuns: {
+    id: number;
+    startedAt: string;
+    finishedAt?: string;
+    status: string;
+    summary?: Record<string, unknown>;
+    error?: string;
+  }[];
+}

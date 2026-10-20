@@ -16,7 +16,7 @@ export function readItem(deps: Deps) {
     }),
     replay: "safe",
     outputLimits: { maxBytes: 16_000 },
-    execute: async (args) => {
+    execute: async (args, api) => {
       try {
         const item = requireItem(deps, args.item_id);
         const cached = item.cacheId
@@ -41,6 +41,16 @@ export function readItem(deps: Deps) {
           "",
           clip(text, args.max_chars ?? 3000) || "No cached text. Use scrape_url to fetch the page.",
         ];
+        deps.store.evidence.record(
+          deps.store.trackId,
+          "read:item",
+          { text: (text ?? "").slice(0, args.max_chars ?? 3000), output: lines.join("\n") },
+          {
+            itemId: item.id,
+            conversationId: api.conversationId as number,
+            sourceExtractionIds: cached?.archiveExtractionId ? [cached.archiveExtractionId] : [],
+          },
+        );
         return toolText(lines.join("\n"));
       } catch (error) {
         if (error instanceof FixableError) return toolError(error.message, error.hints);

@@ -501,6 +501,39 @@ try {
     (await page.locator(".card-detail .finding a").count()) === 2,
     "story sources expand with both original article links",
   );
+  await page.getByRole("region", { name: "Source archive" }).waitFor();
+  await page.locator(".archive-list button").first().click();
+  await page.locator(".archive-preview").waitFor();
+  check(
+    (await page.locator(".archive-preview").innerText()).length > 20,
+    "archive preview shows immutable text",
+  );
+  await page.getByRole("button", { name: "Pin this version", exact: true }).click();
+  await page.getByRole("button", { name: "Unpin this version", exact: true }).waitFor();
+  check(true, "exact archived version can be pinned");
+  await page.getByRole("button", { name: "Unpin this version", exact: true }).click();
+  await page.getByRole("button", { name: "Pin this version", exact: true }).waitFor();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Download original bytes" }).click();
+  const download = await downloadPromise;
+  check(
+    download.suggestedFilename().startsWith("archive-"),
+    "archive bytes download as an attachment through the hub",
+  );
+  await page.screenshot({ path: join(shots, "archive-evidence.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  check(
+    await page.locator(".archive-history").evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+    "archive preview stays within the narrow card dialog",
+  );
+  check(
+    (await page
+      .locator(".archive-preview script, .archive-preview iframe, .archive-preview img")
+      .count()) === 0,
+    "archive preview does not render active source markup",
+  );
+  await page.screenshot({ path: join(shots, "archive-evidence-narrow.png"), fullPage: false });
+  await page.setViewportSize({ width: 1600, height: 1000 });
   await page.locator(".card-detail").getByRole("button", { name: "Close", exact: true }).click();
   await chips.first().click();
   await page.locator("[data-timeline] .card").nth(1).waitFor();
@@ -1014,6 +1047,39 @@ try {
       (await searchDoc.locator(".json-view .json-key").count()) > 3,
     "the Tools tab shows each tool's params, return and a highlighted definition",
   );
+  await page.getByRole("button", { name: "Archive", exact: true }).click();
+  await page.getByRole("region", { name: "Archive retention" }).waitFor();
+  check(
+    (await page.locator(".settings-modal > .drawer-body").count()) === 1 &&
+      (await page.locator(".settings-modal .src-row").count()) === 0,
+    "Archive settings shows its own panel without feedback from another tab",
+  );
+  await page.getByLabel("Ordinary body days").fill("91");
+  await page.getByRole("button", { name: "Save policy with cleanup disabled" }).click();
+  await page.waitForFunction(() =>
+    document
+      .querySelector('[aria-label="Archive retention"] [role="status"]')
+      ?.textContent?.includes("Policy saved"),
+  );
+  check(
+    (await call("GET", "/v1/archive-retention")).policy.ordinaryDays === 91,
+    "archive policy edits persist with cleanup disabled",
+  );
+  await page.getByRole("button", { name: "Enable scheduled cleanup", exact: true }).click();
+  await page.getByRole("button", { name: "Disable scheduled cleanup", exact: true }).waitFor();
+  check(
+    (await call("GET", "/v1/archive-retention")).policy.enforcement === "enabled",
+    "a current dry run enables shared scheduled cleanup",
+  );
+  await page.getByRole("button", { name: "Disable scheduled cleanup", exact: true }).click();
+  await page.getByRole("button", { name: "Enable scheduled cleanup", exact: true }).waitFor();
+  check(
+    (await call("GET", "/v1/archive-retention")).policy.enforcement === "disabled",
+    "scheduled cleanup can be disabled without deleting files",
+  );
+  await page.getByRole("button", { name: "Refresh dry run", exact: true }).click();
+  await page.screenshot({ path: join(shots, "archive-retention.png") });
+  await collectCaps();
   await page.getByRole("button", { name: "Taste", exact: true }).click();
   await collectCaps();
   await page.screenshot({ path: join(shots, "settings.png") });

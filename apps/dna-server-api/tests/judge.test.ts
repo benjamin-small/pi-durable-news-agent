@@ -47,7 +47,7 @@ test("the judge scores, ranks, records every call, and records failures", async 
     });
     await assert.rejects(failing.worth(pi, { callId: "c9" }), /jev down/);
     const rows = store.db
-      .prepare("SELECT command, error, call_id FROM jev_calls ORDER BY id")
+      .prepare("SELECT command, error, call_id,archive_evidence_id FROM jev_calls ORDER BY id")
       .all() as any[];
     assert.deepEqual(
       rows.map((r) => r.command),
@@ -55,6 +55,18 @@ test("the judge scores, ranks, records every call, and records failures", async 
     );
     assert.match(rows.at(-1).error, /jev down/);
     assert.equal(rows.at(-1).call_id, "c9");
+    assert.ok(rows.every((r) => r.archive_evidence_id));
+    const exact = JSON.parse(
+      store.evidence.body("ai", "evidence", rows[1].archive_evidence_id)!.toString(),
+    );
+    assert.equal(exact.command.name, "hfs");
+    assert.equal(exact.vars.excerpt, pi.excerpt);
+    assert.equal(
+      store.db
+        .prepare("SELECT archive_evidence_id FROM classifications WHERE id=?")
+        .get(hfsPi.classificationId)!.archive_evidence_id,
+      rows[1].archive_evidence_id,
+    );
   } finally {
     cleanup();
   }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Settings, as a full modal like the model picker: keywords per section, sources, search mode and credits, your
 // recent feedback, and the agents' tools.
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue";
 import { BadgeCheck, Megaphone, Plus, Power, Trash2, Hash, X, Zap } from "@lucide/vue";
 import {
   ago,
@@ -11,6 +11,7 @@ import {
   type TasteState,
   type ToolInfo,
 } from "@dna/sdk";
+import ArchiveRetention from "./ArchiveRetention.vue";
 import JsonView from "./JsonView.vue";
 import LoadingRows from "./LoadingRows.vue";
 import { api, attempt, info, onFrame, refreshInfo, ui } from "../client/store";
@@ -26,7 +27,12 @@ const SOURCE_KINDS: SourceKind[] = [
   "github_releases",
   "web_page",
 ];
-const tab = ref<"keywords" | "sources" | "search" | "taste" | "tools">("keywords");
+const modal = ref<HTMLElement>();
+const tab = ref<"keywords" | "sources" | "search" | "taste" | "tools" | "archive">("keywords");
+watch(tab, async () => {
+  await nextTick();
+  if (modal.value) modal.value.scrollTop = 0;
+});
 const tools = ref<ToolInfo[]>();
 async function openTools() {
   tab.value = "tools";
@@ -108,7 +114,13 @@ async function removeSource(s: Source) {
 
 <template>
   <div class="modal-backdrop" @click.self="ui.settings = false">
-    <section class="modal settings-modal" role="dialog" aria-modal="true" aria-label="Settings">
+    <section
+      ref="modal"
+      class="modal settings-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Settings"
+    >
       <header>
         <h2>Settings</h2>
         <button class="icon-button" aria-label="Close settings" @click="ui.settings = false">
@@ -151,8 +163,17 @@ async function removeSource(s: Source) {
         >
           Tools
         </button>
+        <button
+          class="tab"
+          :class="{ on: tab === 'archive' }"
+          data-cap="archive.retention"
+          @click="tab = 'archive'"
+        >
+          Archive
+        </button>
       </div>
-      <div v-if="tab === 'tools'" class="drawer-body tools-body">
+      <ArchiveRetention v-if="tab === 'archive'" />
+      <div v-else-if="tab === 'tools'" class="drawer-body tools-body">
         <p class="muted small">
           Every tool the agents can call, as the model sees it. Required parameters are marked.
         </p>
