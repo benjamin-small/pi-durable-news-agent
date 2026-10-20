@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// News and its tabs. News is always the first tab; timelines open from a card's chip, searches from the search box
+// Views within the selected desk. News is always the first tab; timelines open from a card's chip, searches from the search box
 // or the agent's open_tab. A card you voted down leaves News (search and timeline tabs still show it).
 import { computed } from "vue";
 import { GitCommitVertical, Hash, Link, Newspaper, Search, X } from "@lucide/vue";
@@ -31,7 +31,7 @@ const active = computed(() => layout.tabs.find((t) => tabKey(t) === layout.tab))
 <template>
   <section class="column feed-column" data-col="feed" data-cap="feed.read" aria-label="News">
     <div class="feed-bar">
-      <nav class="feed-tabs" role="tablist" aria-label="News and tabs" data-cap="timelines.read">
+      <nav class="feed-tabs" role="tablist" aria-label="Desk views" data-cap="timelines.read">
         <button
           role="tab"
           class="feed-tab"
