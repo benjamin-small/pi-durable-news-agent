@@ -108,6 +108,21 @@ Automatic compaction policy is shared by the current pi-durable harness; the adv
 
 Database migrations are transactional and check foreign keys before committing. For a deployment upgrade, stop the API and preserve both SQLite files before starting the new version; downgrading the database requires restoring that snapshot.
 
+## Source archive
+
+Source acquisitions now preserve the downloaded response body before feed parsing, HTML extraction or agent text clipping. The archive covers RSS/Atom and release feeds, Hacker News/API responses, listing pages, free and Firecrawl search responses, article/date fetches, and explicit full/deep reads. It captures existing requests; it does not fetch every linked article or add model calls.
+
+`data/archive/blobs/` holds gzip-compressed, SHA-256-addressed bodies. `dna.sqlite` holds document identities, immutable body versions, fetch observations and normalized extraction versions. Identical bodies share storage across desks; observations retain the initiating track and source/sweep/conversation when available. A shorter corrected page creates a version, and an unchanged response adds an observation. A 304 links to an archived complete response only when its validator matches; otherwise its body reference is explicitly unknown.
+
+Original bodies are the bytes supplied by `fetch` after transport decompression, not an exact HTTP wire recording or a browser screenshot. Only selected response and conditional/content-negotiation request headers are retained; authorization and cookies are excluded. Request bodies are fingerprinted rather than saved. Firecrawl results are labeled provider responses, not publisher HTML. Fixture/text-only transports are labeled reencoded text with unknown completeness. The existing HTTP size cap remains; capped or interrupted downloads are marked partial. The final response/error after HTTP retries is recorded, not every intermediate retry. Parser failures retain their downloaded body. Archive write/integrity failures fail the acquisition rather than silently continuing without evidence.
+
+Normalized cache entries retain extraction history and source observation references, including the response that produced each search hit. The current cache still selects the richer body for compatibility; the archive independently retains shorter revisions. Full/deep reads also retain their larger extracted text. Existing cached text is imported once as `legacy-cache`, with no invented original or earlier revision history. Existing `data/scrapes/` files remain untouched; newly fetched full reads are archived alongside that compatibility store.
+
+The agreed policy is recorded as `source-bodies-v1`: ordinary bodies 90 days, cited versions 365 days, pinned versions indefinitely. **Deletion enforcement is disabled in this foundation PR: nothing expires automatically yet.** Exact analysis/card evidence bindings, pin controls, version-history UI and retention dry-run/enforcement are separate follow-ups. Existing conversation transcripts, decision excerpts and backups have separate lifecycles. Cache freshness (currently 24 hours) and the 7/14-day news lookback do not delete archived versions.
+
+Back up `data/archive/` together with both SQLite databases and the rest of `data/`. Stop the API for a consistent filesystem snapshot, or use a coordinated database/blob backup. A database-only backup cannot restore the archived bodies. On a crash, an unreferenced blob or temporary file may remain; no automatic orphan deletion runs in this release. Before rolling back the schema, stop the API and restore the complete pre-upgrade data snapshot.
+
+
 ## How a sweep works
 
 <p align="center">

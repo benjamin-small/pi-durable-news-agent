@@ -51,7 +51,7 @@ export function hyperFetch(deps: Deps) {
       let fetched = "saved copy";
       if (!text) {
         try {
-          const page = await deps.search.hyperFetch(url, ref(api));
+          const page = await deps.search.hyperFetch(url, ref(api, undefined, deps.store.trackId));
           if (!page.markdown)
             return toolError(`No article text found at ${url}.`, [
               "Try scrape_url, or tell the reader the page could not be read.",

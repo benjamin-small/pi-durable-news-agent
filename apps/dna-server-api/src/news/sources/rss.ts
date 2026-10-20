@@ -97,9 +97,9 @@ export const fetchFeed: Fetcher = async (source, ctx) => {
   const res = await ctx.http.get(source.url, { headers, allowStatus: [304] });
   if (res.status === 304)
     return { ok: true, status: "304 not modified", entries: [], notModified: true };
-  const entries = parseFeed(res.text, source.url).filter(
-    (e) => !e.publishedAt || Date.parse(e.publishedAt) >= ctx.since.getTime(),
-  );
+  const entries = parseFeed(res.text, source.url)
+    .map((entry) => ({ ...entry, captureIds: res.captureId ? [res.captureId] : undefined }))
+    .filter((e) => !e.publishedAt || Date.parse(e.publishedAt) >= ctx.since.getTime());
   return {
     ok: true,
     status: `200 ${entries.length} entries`,

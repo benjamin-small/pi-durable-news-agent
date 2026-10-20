@@ -12,6 +12,7 @@ import { TasteRepo, type KeywordKind } from "./repos/taste.ts";
 import { TelemetryRepo } from "./repos/telemetry.ts";
 import { TracksRepo } from "./repos/tracks.ts";
 import { DEFAULT_TRACK_ID } from "@dna/sdk";
+import { Archive } from "../archive/archive.ts";
 
 export interface Store {
   db: Db;
@@ -24,35 +25,54 @@ export interface Store {
   sweeps: SweepsRepo;
   telemetry: TelemetryRepo;
   globalTelemetry: TelemetryRepo;
+  archive: Archive;
   close(): void;
 }
 
 export function openStore(dataDir: string, configDir: string): Store {
   const path = join(dataDir, "dna.sqlite");
   const unlock = lockFile(`${path}.lock`);
-  const db = openDb(path);
-  migrate(db);
-  const store: Store = {
-    db,
-    trackId: DEFAULT_TRACK_ID,
-    tracks: new TracksRepo(db),
-    settings: new SettingsRepo(db, DEFAULT_TRACK_ID),
-    sources: new SourcesRepo(db, DEFAULT_TRACK_ID),
-    news: new NewsRepo(db, DEFAULT_TRACK_ID),
-    taste: new TasteRepo(db, DEFAULT_TRACK_ID),
-    sweeps: new SweepsRepo(db, DEFAULT_TRACK_ID),
-    telemetry: new TelemetryRepo(db, undefined, DEFAULT_TRACK_ID),
-    globalTelemetry: new TelemetryRepo(db),
-    close() {
-      try {
-        db.close();
-      } finally {
-        unlock();
-      }
-    },
-  };
-  seedStore(store, configDir);
-  return store;
+  let db: Db;
+  try {
+    db = openDb(path);
+  } catch (error) {
+    unlock();
+    throw error;
+  }
+  try {
+    migrate(db);
+    const archive = new Archive(db, join(dataDir, "archive"));
+    archive.importLegacyCache();
+    const store: Store = {
+      db,
+      trackId: DEFAULT_TRACK_ID,
+      tracks: new TracksRepo(db),
+      settings: new SettingsRepo(db, DEFAULT_TRACK_ID),
+      sources: new SourcesRepo(db, DEFAULT_TRACK_ID, archive),
+      archive,
+      news: new NewsRepo(db, DEFAULT_TRACK_ID),
+      taste: new TasteRepo(db, DEFAULT_TRACK_ID),
+      sweeps: new SweepsRepo(db, DEFAULT_TRACK_ID),
+      telemetry: new TelemetryRepo(db, undefined, DEFAULT_TRACK_ID),
+      globalTelemetry: new TelemetryRepo(db),
+      close() {
+        try {
+          db.close();
+        } finally {
+          unlock();
+        }
+      },
+    };
+    seedStore(store, configDir);
+    return store;
+  } catch (error) {
+    try {
+      db.close();
+    } finally {
+      unlock();
+    }
+    throw error;
+  }
 }
 
 export function scopeStore(owner: Store, trackId: string, configDir: string): Store {
@@ -62,7 +82,7 @@ export function scopeStore(owner: Store, trackId: string, configDir: string): St
     ...owner,
     trackId,
     settings: new SettingsRepo(db, trackId),
-    sources: new SourcesRepo(db, trackId),
+    sources: new SourcesRepo(db, trackId, owner.archive),
     news: new NewsRepo(db, trackId),
     taste: new TasteRepo(db, trackId),
     sweeps: new SweepsRepo(db, trackId),

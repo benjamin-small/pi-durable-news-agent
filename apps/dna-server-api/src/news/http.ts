@@ -7,6 +7,23 @@ export interface HttpResponse {
   url: string;
   headers: Headers;
   text: string;
+  /** Bytes returned by fetch after transport decompression, before decoding or extraction. */
+  raw?: { body: Uint8Array; complete: boolean };
+  /** Internal provenance identifier, attached only by the document archive. */
+  captureId?: number;
+}
+
+export class SourceHttpError extends HttpError {
+  constructor(
+    status: number,
+    message: string,
+    readonly response: HttpResponse,
+  ) {
+    super(status, message, {
+      retryAfterMs: retryAfterMs(response.headers.get("retry-after")),
+      body: response.text.slice(0, 500),
+    });
+  }
 }
 
 export interface GetOptions {
@@ -34,22 +51,29 @@ export interface Http {
 export const USER_AGENT =
   "durable-news-agent/0.1 (+https://github.com/disler/pi-durable-news-agent)";
 
-async function readCapped(res: Response, maxBytes: number): Promise<string> {
-  if (!res.body) return "";
+async function readCapped(
+  res: Response,
+  maxBytes: number,
+): Promise<{ body: Buffer; complete: boolean; interrupted?: boolean }> {
+  if (!res.body) return { body: Buffer.alloc(0), complete: true };
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > maxBytes) {
-      await reader.cancel();
-      break;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value.subarray(0, Math.max(0, maxBytes - size)));
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel();
+        return { body: Buffer.concat(chunks), complete: false };
+      }
     }
-    chunks.push(value);
+  } catch {
+    return { body: Buffer.concat(chunks), complete: false, interrupted: true };
   }
-  return new TextDecoder().decode(Buffer.concat(chunks));
+  return { body: Buffer.concat(chunks), complete: true };
 }
 
 export function liveHttp(log?: Logger): Http {
@@ -61,19 +85,23 @@ export function liveHttp(log?: Logger): Http {
           redirect: "follow",
           signal: AbortSignal.timeout(options.timeoutMs ?? 15_000),
         });
-        if (!res.ok && !(options.allowStatus ?? []).includes(res.status)) {
-          const body = (await readCapped(res, 4000)).slice(0, 500);
-          throw new HttpError(res.status, `GET ${new URL(url).host} HTTP ${res.status}`, {
-            retryAfterMs: retryAfterMs(res.headers.get("retry-after")),
-            body,
-          });
-        }
-        return {
+        const raw = await readCapped(res, options.maxBytes ?? 2 * 1024 * 1024);
+        const response: HttpResponse = {
           status: res.status,
           url: res.url || url,
           headers: res.headers,
-          text: await readCapped(res, options.maxBytes ?? 2 * 1024 * 1024),
+          text: new TextDecoder().decode(raw.body),
+          raw,
         };
+        if (raw.interrupted)
+          throw new SourceHttpError(502, `Download interrupted for ${new URL(url).host}`, response);
+        if (!res.ok && !(options.allowStatus ?? []).includes(res.status))
+          throw new SourceHttpError(
+            res.status,
+            `GET ${new URL(url).host} HTTP ${res.status}`,
+            response,
+          );
+        return response;
       },
       {
         attempts: 3,

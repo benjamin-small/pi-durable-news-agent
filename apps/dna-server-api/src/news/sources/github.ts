@@ -13,6 +13,7 @@ export const fetchGithubReleases: Fetcher = async (source, ctx) => {
     .filter((e) => !e.publishedAt || Date.parse(e.publishedAt) >= ctx.since.getTime())
     .map((e) => ({
       ...e,
+      captureIds: res.captureId ? [res.captureId] : undefined,
       title: e.title.toLowerCase().includes(repo.split("/")[1].toLowerCase())
         ? e.title
         : `${repo} ${e.title}`,
