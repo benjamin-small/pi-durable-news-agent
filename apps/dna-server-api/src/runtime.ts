@@ -43,6 +43,7 @@ import { Bus } from "./events.ts";
 import { ApiFault } from "./errors.ts";
 import { Dates } from "./news/dates.ts";
 import { fixtureDecide, fixtureHttp } from "./news/fixtures.ts";
+import { cleanupArchive } from "./archive/cleanup.ts";
 import { Judge } from "./news/hfs.ts";
 import { liveHttp } from "./news/http.ts";
 import { Images } from "./news/images.ts";
@@ -178,13 +179,18 @@ export async function openApp(config: Config, options: { log?: Logger } = {}): P
   let stopProjector = () => {};
   let stopUsage = () => {};
   const usage = new Map<number, UsageSummary>();
+  let retentionTimer: ReturnType<typeof setInterval> | undefined;
+  let cleanupInFlight = false;
+  let lastCleanup = 0;
   let stallTimer: ReturnType<typeof setInterval> | undefined;
   const close = async () => {
     if (closed) return;
     closed = true;
     clearInterval(stallTimer);
+    clearInterval(retentionTimer);
     stopProjector();
     stopUsage();
+    while (cleanupInFlight) await new Promise((resolve) => setTimeout(resolve, 10));
     await harness.close();
     owner.close();
     log.info("app.closed", {});
@@ -340,6 +346,24 @@ export async function openApp(config: Config, options: { log?: Logger } = {}): P
       }
     }, 60_000);
     stallTimer.unref();
+    // One collector for both desks. Disabled until explicitly enabled after a preview.
+    retentionTimer = setInterval(() => {
+      if (
+        closed ||
+        cleanupInFlight ||
+        owner.retention.policy().enforcement !== "enabled" ||
+        Date.now() - lastCleanup < 60 * 60_000
+      )
+        return;
+      cleanupInFlight = true;
+      lastCleanup = Date.now();
+      void cleanupArchive(desks.get(DEFAULT_TRACK_ID)!, { scheduled: true })
+        .catch((error) => log.warn("archive.cleanup_failed", { error: String(error) }))
+        .finally(() => {
+          cleanupInFlight = false;
+        });
+    }, 60_000);
+    retentionTimer.unref();
     log.info("app.opened", {
       device: config.device,
       desks: [...desks.values()].map((d) => ({ trackId: d.track.id, conversationId: d.main.id })),

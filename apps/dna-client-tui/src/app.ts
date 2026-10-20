@@ -371,6 +371,21 @@ export class App {
             this.flash(`Keyword ${a} ${verb}`));
           throw new Error("/keyword add|rm|weight|on|off");
         }
+        case "archive": {
+          const result =
+            words[0] === "disable"
+              ? await cl.archivePolicy({ enforcement: "disabled" })
+              : words[0] === "enable" && words[1]
+                ? await cl.archivePolicy({ enforcement: "enabled" }, words[1])
+                : words[0] === "cleanup" && words[1]
+                  ? await cl.archiveCleanup(words[1])
+                  : await cl.archiveRetention();
+          return this.show(
+            "detail",
+            "archive retention",
+            JSON.stringify(result, null, 2).split("\n"),
+          );
+        }
         case "sources":
           return this.show("detail", "sources", (await cl.sources()).map(print.sourceLine));
         case "source": {

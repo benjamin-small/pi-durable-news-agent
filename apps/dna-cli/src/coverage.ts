@@ -22,6 +22,7 @@ export const CLI_COMMANDS: Record<CapabilityId, string> = {
   "agent.compaction": "compaction",
   "agent.compact": "compact",
   keywords: "keywords",
+  "archive.retention": "archive",
   sources: "sources",
   "sweeps.read": "sweeps",
   "runs.read": "runs",

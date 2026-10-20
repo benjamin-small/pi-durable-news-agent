@@ -200,6 +200,7 @@ test("legacy migration preserves every row, ID, relationship, retry key and AI s
       "003_cyber_security.sql",
       "004_archive.sql",
       "005_archive_evidence.sql",
+      "006_archive_retention.sql",
     ]);
     for (const [table, rows] of before) {
       const after = db

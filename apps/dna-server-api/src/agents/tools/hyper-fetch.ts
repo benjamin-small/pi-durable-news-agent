@@ -26,6 +26,27 @@ export function savedText(file: string): string | undefined {
   }
 }
 
+/** Sidecar binds saved chunks to the exact extraction used to create the file, including after restart. */
+export function saveScrape(file: string, text: string, sourceExtractionId: number) {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, text);
+  writeFileSync(
+    `${file}.archive.json`,
+    JSON.stringify({ sourceExtractionId, hash: createHash("sha256").update(text).digest("hex") }),
+  );
+}
+export function savedSource(file: string, text: string): number[] {
+  try {
+    const meta = JSON.parse(readFileSync(`${file}.archive.json`, "utf8"));
+    return Number.isSafeInteger(meta.sourceExtractionId) &&
+      meta.hash === createHash("sha256").update(text).digest("hex")
+      ? [meta.sourceExtractionId]
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 export function hyperFetch(deps: Deps) {
   return defineAppTool({
     name: "hyper_fetch",
@@ -56,8 +77,7 @@ export function hyperFetch(deps: Deps) {
             return toolError(`No article text found at ${url}.`, [
               "Try scrape_url, or tell the reader the page could not be read.",
             ]);
-          mkdirSync(dirname(file), { recursive: true });
-          writeFileSync(file, page.markdown);
+          saveScrape(file, page.markdown, page.archiveExtractionId);
           text = page.markdown;
           fetched =
             page.via === "firecrawl" ? `firecrawl, ${page.credits} credits` : "direct fetch";
@@ -78,7 +98,12 @@ export function hyperFetch(deps: Deps) {
         deps.store.trackId,
         "read:hyper-fetch",
         { text: text.slice((chunk - 1) * CHUNK_CHARS, chunk * CHUNK_CHARS) },
-        { itemId: item?.id, url, conversationId: api.conversationId as number },
+        {
+          itemId: item?.id,
+          url,
+          conversationId: api.conversationId as number,
+          sourceExtractionIds: savedSource(file, text),
+        },
       );
       return toolText(
         [

@@ -349,7 +349,7 @@ try {
       .count()) === 0,
     "archive preview does not render active source markup",
   );
-  await page.screenshot({ path: join(shots, "archive-evidence-narrow.png"), fullPage: true });
+  await page.screenshot({ path: join(shots, "archive-evidence-narrow.png"), fullPage: false });
   await page.setViewportSize({ width: 1600, height: 1000 });
   await page.locator(".card-detail").getByRole("button", { name: "Close", exact: true }).click();
   await chips.first().click();
@@ -856,6 +856,39 @@ try {
       (await searchDoc.locator(".json-view .json-key").count()) > 3,
     "the Tools tab shows each tool's params, return and a highlighted definition",
   );
+  await page.getByRole("button", { name: "Archive", exact: true }).click();
+  await page.getByRole("region", { name: "Archive retention" }).waitFor();
+  check(
+    (await page.locator(".settings-modal > .drawer-body").count()) === 1 &&
+      (await page.locator(".settings-modal .src-row").count()) === 0,
+    "Archive settings shows its own panel without feedback from another tab",
+  );
+  await page.getByLabel("Ordinary body days").fill("91");
+  await page.getByRole("button", { name: "Save policy with cleanup disabled" }).click();
+  await page.waitForFunction(() =>
+    document
+      .querySelector('[aria-label="Archive retention"] [role="status"]')
+      ?.textContent?.includes("Policy saved"),
+  );
+  check(
+    (await call("GET", "/v1/archive-retention")).policy.ordinaryDays === 91,
+    "archive policy edits persist with cleanup disabled",
+  );
+  await page.getByRole("button", { name: "Enable scheduled cleanup", exact: true }).click();
+  await page.getByRole("button", { name: "Disable scheduled cleanup", exact: true }).waitFor();
+  check(
+    (await call("GET", "/v1/archive-retention")).policy.enforcement === "enabled",
+    "a current dry run enables shared scheduled cleanup",
+  );
+  await page.getByRole("button", { name: "Disable scheduled cleanup", exact: true }).click();
+  await page.getByRole("button", { name: "Enable scheduled cleanup", exact: true }).waitFor();
+  check(
+    (await call("GET", "/v1/archive-retention")).policy.enforcement === "disabled",
+    "scheduled cleanup can be disabled without deleting files",
+  );
+  await page.getByRole("button", { name: "Refresh dry run", exact: true }).click();
+  await page.screenshot({ path: join(shots, "archive-retention.png") });
+  await collectCaps();
   await page.getByRole("button", { name: "Taste", exact: true }).click();
   await collectCaps();
   await page.screenshot({ path: join(shots, "settings.png") });

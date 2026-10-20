@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Deps } from "../deps.ts";
 import type { Item } from "../db/repos/news.ts";
 import { yes } from "@dna/jev";
-import { pageText } from "./page.ts";
+import { pageRead } from "./page.ts";
 import {
   shortlist,
   storyAction,
@@ -15,12 +15,13 @@ type StoryDeps = Pick<Deps, "store" | "judge" | "http" | "log" | "bus">;
 
 /** One matcher per sweep. Page reads are shared, verdicts persist across process restarts. */
 export class StoryMatcher {
-  private pages = new Map<number, Promise<string | undefined>>();
+  private pages = new Map<number, ReturnType<typeof pageRead>>();
   constructor(private readonly deps: StoryDeps) {}
 
   private async evidence(item: Item) {
-    if (!this.pages.has(item.id)) this.pages.set(item.id, pageText(this.deps, item, 6000));
-    const text = await this.pages.get(item.id);
+    if (!this.pages.has(item.id)) this.pages.set(item.id, pageRead(this.deps, item, 6000));
+    const page = await this.pages.get(item.id);
+    const text = page?.text;
     return {
       title: item.title,
       source_url: item.url,
@@ -78,7 +79,14 @@ export class StoryMatcher {
     const verdict: StoryVerdict = prior
       ? JSON.parse(prior.answers_json)
       : await (async () => {
-          const result = await judge.run("same-story", state, { itemId: candidate.id, sweepId });
+          const sourceExtractionIds = (
+            await Promise.all([candidate, ...selected].map((i) => this.pages.get(i.id)))
+          ).flatMap((p) => p?.sourceExtractionIds ?? []);
+          const result = await judge.run("same-story", state, {
+            itemId: candidate.id,
+            sweepId,
+            sourceExtractionIds,
+          });
           return Object.fromEntries(
             ["same", "development", "covered", "addition", "sufficient"].map((k) => [
               k,

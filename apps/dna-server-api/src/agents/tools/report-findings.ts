@@ -39,6 +39,7 @@ export function reportFindings(deps: Deps) {
           support = await deps.judge.claimSupport(args.claims, evidence, {
             ...ref(api, item.sweepId),
             itemId: item.id,
+            sourceExtractionIds: cached?.archiveExtractionId ? [cached.archiveExtractionId] : [],
           });
         } catch (error) {
           deps.log.warn("findings.claim_support_failed", { itemId: item.id, error: String(error) });
